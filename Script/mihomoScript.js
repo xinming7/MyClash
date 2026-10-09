@@ -1144,10 +1144,12 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     } else if (svc.reject) {
       groupProxies = ['REJECT', 'REJECT-DROP', 'PASS'];
     } else {
+      const vgGroupNames = ruleOptionsEnable.VG ? ['⚡ CF前置', 'VG家宽'] : [];
       groupProxies = !addAllNodesToServiceGroupsEnabled
-        ? ['默认代理', ...customGroupNames, ...baseGroupNames, ...groupNamesOfSelect, ...(svc.direct ? ['直连'] : [])]
+        ? ['默认代理', ...vgGroupNames, ...customGroupNames, ...baseGroupNames, ...groupNamesOfSelect, ...(svc.direct ? ['直连'] : [])]
         : [
             '默认代理',
+            ...vgGroupNames,
             ...customGroupNames,
             ...baseGroupNames,
             ...groupNamesOfSelect,
@@ -1170,7 +1172,7 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
   functionalGroups.push({
     ...selectBaseOption,
     name: '漏网之鱼',
-    proxies: ['默认代理', '直连', ...groupNamesOfSelect],
+    proxies: ['默认代理', ...(ruleOptionsEnable.VG ? ['⚡ CF前置', 'VG家宽'] : []), '直连', ...groupNamesOfSelect],
     icon: `${iconBaseUrl}Stack.svg`,
   });
 
