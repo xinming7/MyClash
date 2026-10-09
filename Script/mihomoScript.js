@@ -57,7 +57,10 @@ const ruleOptionsEnable = {
   屏蔽国外QUIC: true, // 是否屏蔽国外QUIC流量
   代理IPV4优先: false, // 是否将订阅节点统一为 IPv4 优先（与“代理IPV6优先”同时开启时不生效）
   代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）
-  链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经“链式中转”策略组中转）
+  链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经”链式中转”策略组中转）
+
+  // 以下为 VG 家宽策略配置
+  VG: true, // 是否启用 VG家宽 / ⚡CF前置 / 🏠家宽自动 策略组
 };
 
 // 定义前置规则
@@ -347,6 +350,9 @@ const loadBalanceBaseOption = {
   icon: `${iconBaseUrl}RoundRobin.svg`,
   hidden: true,
 };
+
+// VG 家宽节点正则（匹配国旗前缀可选：🇭🇰 🏠 HK-家宽-01 或 🏠 HK-家宽-01）
+const vgRegex = /^(?:[\u{1F1E6}-\u{1F1FF}]{2}\s)?🏠 [A-Z]{2}-家宽-\d{2}$/u;
 
 // 定义基础策略组
 const baseGroups = [
@@ -1163,6 +1169,38 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     icon: `${iconBaseUrl}Stack.svg`,
   });
 
+  // --- VG / CF 前置策略组 ---
+  const vgCfGroups = [];
+  if (ruleOptionsEnable.VG) {
+    const allProxiesWithVg = allProxiesNames.filter((name) => vgRegex.test(name));
+    const cfProxies = allProxiesNames.filter((name) => /\[cf\]$/i.test(name));
+
+    const homeAuto = {
+      ...urlTestBaseOption,
+      name: '🏠 家宽自动',
+      proxies: allProxiesWithVg,
+      'exclude-filter': '\\[cf\\]$',
+      icon: `${iconBaseUrl}Auto.svg`,
+      hidden: false,
+    };
+    const vgSelect = {
+      ...selectBaseOption,
+      name: 'VG家宽',
+      proxies: [homeAuto.name, ...allProxiesWithVg],
+      icon: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Clubhouse_1.png',
+    };
+    const cfPre = {
+      ...urlTestBaseOption,
+      name: '⚡ CF前置',
+      proxies: cfProxies,
+      'exclude-filter': '',
+      filter: '\\[cf\\]$',
+      icon: 'https://gh-proxy.org/https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/cloudflare-color.png',
+      hidden: false,
+    };
+    vgCfGroups.push(cfPre, vgSelect, homeAuto);
+  }
+
   const directGroup = {
     ...selectBaseOption,
     name: '直连',
@@ -1184,7 +1222,7 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     icon: `${iconBaseUrl}Global.svg`,
   };
 
-  return { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup };
+  return { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup, vgCfGroups };
 }
 
 // ---dns和hosts相关处理---
@@ -1603,7 +1641,7 @@ function main(config) {
 
   const generatedRegionGroups = ruleOptionsEnable.极简模式 ? [] : buildRegionGroups(filteredProxies, customProxies);
 
-  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup } =
+  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup, vgCfGroups } =
     buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });
 
   const { dns, hosts, proxies: mappedProxies } = buildDnsAndHostsConfig(config, filteredProxies);
@@ -1654,15 +1692,35 @@ function main(config) {
     ...functionalGroups,
     ...(customGroup ? [customGroup] : []),
     ...(chainGroup ? [chainGroup] : []),
+    ...vgCfGroups,
     directGroup,
     ...generatedRegionGroups,
   ];
-  newConfig['rule-providers'] = finalRuleProviders;
+  newConfig['rule-providers'] = {
+    ...finalRuleProviders,
+    ...(ruleOptionsEnable.VG
+      ? {
+          custom_proxy: {
+            ...ruleProviderCommonDomain,
+            url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_proxy.mrs',
+            path: './rules/custom_proxy.mrs',
+          },
+          custom_direct: {
+            ...ruleProviderCommonDomain,
+            url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_direct.mrs',
+            path: './rules/custom_direct.mrs',
+          },
+        }
+      : {}),
+  };
 
   newConfig['rules'] = [
     ...prefixRules,
     ...(ruleOptionsEnable.屏蔽国外QUIC ? blockForeignQuic : []),
     ...functionalRules,
+
+    // VG 自定义规则集（兜底前插入）
+    ...(ruleOptionsEnable.VG ? ['RULE-SET,custom_proxy,默认代理', 'RULE-SET,custom_direct,直连'] : []),
 
     // 兜底规则
     'RULE-SET,geolocation-!cn,默认代理',
