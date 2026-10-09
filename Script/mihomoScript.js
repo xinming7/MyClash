@@ -354,6 +354,9 @@ const loadBalanceBaseOption = {
 // VG 家宽节点正则（匹配国旗前缀可选：🇭🇰 🏠 HK-家宽-01 或 🏠 HK-家宽-01）
 const vgRegex = /^(?:[\u{1F1E6}-\u{1F1FF}]{2}\s)?🏠 [A-Z]{2}-家宽-\d{2}$/u;
 
+// 自动选择/负载均衡需要排除的节点关键词
+const autoExcludeRegex = /优选|家宽/;
+
 // 定义基础策略组
 const baseGroups = [
   {
@@ -1135,7 +1138,9 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
 
     let groupProxies = [];
     if (svc.includeAll) {
-      groupProxies = [...allProxiesNames];
+      groupProxies = (svc.baseOption.type === 'url-test' || svc.baseOption.type === 'load-balance')
+        ? allProxiesNames.filter((name) => !autoExcludeRegex.test(name))
+        : [...allProxiesNames];
     } else if (svc.reject) {
       groupProxies = ['REJECT', 'REJECT-DROP', 'PASS'];
     } else {
@@ -1178,8 +1183,7 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     const homeAuto = {
       ...urlTestBaseOption,
       name: '🏠 家宽自动',
-      proxies: allProxiesWithVg,
-      'exclude-filter': '\\[cf\\]$',
+      proxies: allProxiesWithVg.filter((name) => !/\[cf\]$/i.test(name)),
       icon: `${iconBaseUrl}Auto.svg`,
       hidden: false,
     };
