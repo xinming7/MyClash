@@ -1712,8 +1712,8 @@ function main(config) {
     ...functionalGroups,
     ...(customGroup ? [customGroup] : []),
     ...(chainGroup ? [chainGroup] : []),
-    ...vgCfGroups,
     directGroup,
+    ...vgCfGroups,
     ...generatedRegionGroups,
   ];
   newConfig['rule-providers'] = {
