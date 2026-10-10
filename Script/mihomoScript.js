@@ -1165,7 +1165,6 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
   functionalGroups.push({
     ...selectBaseOption,
     name: '默认代理',
-    ...(ruleOptionsEnable.VG && vgCfGroupNames.includes('⚡ CF前置') && { 'default-selected': '⚡ CF前置' }),
     proxies: [...vgCfGroupNames, ...groupNamesOfSelect, ...baseGroupNames, ...customGroupNames],
     icon: `${iconBaseUrl}Proxy.svg`,
   });
