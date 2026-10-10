@@ -357,8 +357,8 @@ const loadBalanceBaseOption = {
 // VG 家宽节点正则（匹配国旗前缀可选：🇭🇰 🏠 HK-家宽-01 或 🏠 HK-家宽-01）
 const vgRegex = /^(?:[\u{1F1E6}-\u{1F1FF}]{2}\s)?🏠 [A-Z]{2}-家宽-\d{2}$/u;
 
-// 自动选择/负载均衡需要排除的节点（精确匹配优选节点或 VG 家宽格式）
-const autoExcludeRegex = /优选|^(?:[\u{1F1E6}-\u{1F1FF}]{2}\s)?🏠 [A-Z]{2}-家宽-\d{2}$/u;
+// 自动选择/负载均衡需要排除的节点关键词（VG 家宽格式由 vgRegex 独立判断）
+const autoExcludeRegex = /优选/;
 
 // 定义基础策略组
 const baseGroups = [
@@ -974,7 +974,7 @@ function buildRegionGroups(filteredProxies, customProxies) {
   const otherProxies = [];
 
   for (const proxy of [...filteredProxies, ...customProxies]) {
-    if (autoExcludeRegex.test(proxy.name)) continue;
+    if (autoExcludeRegex.test(proxy.name) || vgRegex.test(proxy.name)) continue;
 
     const matchedRegions = getMatchedRegions(proxy.name);
     const isRegionProxy = matchedRegions.some((region) => regionDefinitions.includes(region));
@@ -1165,7 +1165,7 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
   functionalGroups.push({
     ...selectBaseOption,
     name: '默认代理',
-    'default-selected': ruleOptionsEnable.VG && vgCfGroupNames.includes('⚡ CF前置') ? '⚡ CF前置' : undefined,
+    ...(ruleOptionsEnable.VG && vgCfGroupNames.includes('⚡ CF前置') && { 'default-selected': '⚡ CF前置' }),
     proxies: [...vgCfGroupNames, ...groupNamesOfSelect, ...baseGroupNames, ...customGroupNames],
     icon: `${iconBaseUrl}Proxy.svg`,
   });
@@ -1186,7 +1186,7 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
 
     let groupProxies = [];
     if (svc.includeAll) {
-      groupProxies = allProxiesNames.filter((name) => !autoExcludeRegex.test(name));
+      groupProxies = allProxiesNames.filter((name) => !autoExcludeRegex.test(name) && !vgRegex.test(name));
     } else if (svc.reject) {
       groupProxies = ['REJECT', 'REJECT-DROP', 'PASS'];
     } else {
@@ -1710,10 +1710,10 @@ function main(config) {
   newConfig['proxies'] = [...mappedProxies, ...customProxies, ...directProxies];
   newConfig['proxy-groups'] = [
     globalGroup,
+    ...vgCfGroups,
     ...functionalGroups,
     ...(customGroup ? [customGroup] : []),
     ...(chainGroup ? [chainGroup] : []),
-    ...vgCfGroups,
     directGroup,
     ...generatedRegionGroups,
   ];
