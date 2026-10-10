@@ -65,6 +65,9 @@ const ruleOptionsEnable = {
 
 // 定义前置规则
 const prefixRules = [
+  // 自定义规则集（VG 家宽相关，优先级最高）
+  ...(ruleOptionsEnable.VG ? ['RULE-SET,custom_proxy,默认代理', 'RULE-SET,custom_direct,直连'] : []),
+
   // 私有网络直连
   'RULE-SET,private,直连',
 
@@ -354,8 +357,8 @@ const loadBalanceBaseOption = {
 // VG 家宽节点正则（匹配国旗前缀可选：🇭🇰 🏠 HK-家宽-01 或 🏠 HK-家宽-01）
 const vgRegex = /^(?:[\u{1F1E6}-\u{1F1FF}]{2}\s)?🏠 [A-Z]{2}-家宽-\d{2}$/u;
 
-// 自动选择/负载均衡需要排除的节点关键词
-const autoExcludeRegex = /优选|家宽/;
+// 自动选择/负载均衡需要排除的节点（精确匹配优选节点或 VG 家宽格式）
+const autoExcludeRegex = /优选|^(?:[\u{1F1E6}-\u{1F1FF}]{2}\s)?🏠 [A-Z]{2}-家宽-\d{2}$/u;
 
 // 定义基础策略组
 const baseGroups = [
@@ -1131,10 +1134,12 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
 
     if (cfProxies.length > 0) {
       vgCfGroups.push({
-        ...urlTestBaseOption,
+        ...groupBaseOption,
+        type: 'url-test',
+        tolerance: 50,
+        'exclude-type': 'DIRECT',
         name: '⚡ CF前置',
         proxies: cfProxies,
-        'exclude-filter': '',
         icon: 'https://gh-proxy.org/https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/cloudflare-color.png',
         hidden: false,
       });
@@ -1228,6 +1233,7 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     name: 'GLOBAL',
     proxies: [
       ...functionalGroups.map((g) => g.name),
+      ...vgCfGroupNames,
       ...customGroupNames,
       ...(chainGroup ? [chainGroup.name] : []),
       directGroup.name,
@@ -1732,9 +1738,6 @@ function main(config) {
     ...prefixRules,
     ...(ruleOptionsEnable.屏蔽国外QUIC ? blockForeignQuic : []),
     ...functionalRules,
-
-    // VG 自定义规则集（兜底前插入）
-    ...(ruleOptionsEnable.VG ? ['RULE-SET,custom_proxy,默认代理', 'RULE-SET,custom_direct,直连'] : []),
 
     // 兜底规则
     'RULE-SET,geolocation-!cn,默认代理',
