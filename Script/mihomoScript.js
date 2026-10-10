@@ -1180,12 +1180,12 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
   const vgCfGroups = [];
   if (ruleOptionsEnable.VG) {
     const allProxiesWithVg = allProxiesNames.filter((name) => vgRegex.test(name));
-    const cfProxies = allProxiesNames.filter((name) => /\[cf\]$/i.test(name));
+    const cfProxies = allProxiesNames.filter((name) => /优选/.test(name));
 
     const homeAuto = {
       ...urlTestBaseOption,
       name: '🏠 家宽自动',
-      proxies: allProxiesWithVg.filter((name) => !/\[cf\]$/i.test(name)),
+      proxies: allProxiesWithVg.filter((name) => !/优选/.test(name)),
       icon: `${iconBaseUrl}Auto.svg`,
       hidden: false,
     };
@@ -1200,7 +1200,6 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
       name: '⚡ CF前置',
       proxies: cfProxies,
       'exclude-filter': '',
-      filter: '\\[cf\\]$',
       icon: 'https://gh-proxy.org/https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/cloudflare-color.png',
       hidden: false,
     };
