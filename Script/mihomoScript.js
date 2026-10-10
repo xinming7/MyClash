@@ -1118,13 +1118,6 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     };
   }
 
-  functionalGroups.push({
-    ...selectBaseOption,
-    name: '默认代理',
-    proxies: [...groupNamesOfSelect, ...baseGroupNames, ...customGroupNames],
-    icon: `${iconBaseUrl}Proxy.svg`,
-  });
-
   // --- VG / CF 前置策略组 ---
   const vgCfGroups = [];
   const vgCfGroupNames = [];
@@ -1166,6 +1159,14 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
       vgCfGroupNames.push('VG家宽');
     }
   }
+
+  functionalGroups.push({
+    ...selectBaseOption,
+    name: '默认代理',
+    'default-selected': ruleOptionsEnable.VG && vgCfGroupNames.includes('⚡ CF前置') ? '⚡ CF前置' : undefined,
+    proxies: [...vgCfGroupNames, ...groupNamesOfSelect, ...baseGroupNames, ...customGroupNames],
+    icon: `${iconBaseUrl}Proxy.svg`,
+  });
 
   const orderedServiceConfigs = [
     ...serviceConfigs.filter((svc) => svc.name === 'AdBlock'),
