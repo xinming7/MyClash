@@ -49,7 +49,7 @@ const ruleOptionsEnable = {
   极简模式: false, // 是否启用极简模式
   生成地区自动选择组: true, // 是否生成地区自动选择策略组
   隐藏地区手动选择组: false, // 是否隐藏地区手动选择策略组
-  生成倍率组: true, // 是否生成低倍率/高倍率策略组
+  生成倍率组: false, // 是否生成低倍率/高倍率策略组
   分流组添加所有节点: false, // 是否为分流策略组添加所有节点
   过滤低倍率节点: false, // 是否过滤低倍率节点
   过滤高倍率节点: false, // 是否过滤高倍率节点
@@ -974,6 +974,8 @@ function buildRegionGroups(filteredProxies, customProxies) {
   const otherProxies = [];
 
   for (const proxy of [...filteredProxies, ...customProxies]) {
+    if (autoExcludeRegex.test(proxy.name)) continue;
+
     const matchedRegions = getMatchedRegions(proxy.name);
     const isRegionProxy = matchedRegions.some((region) => regionDefinitions.includes(region));
 
@@ -1149,13 +1151,13 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
         icon: `${iconBaseUrl}Auto.svg`,
         hidden: false,
       };
-      vgCfGroups.push(homeAuto);
       vgCfGroups.push({
         ...selectBaseOption,
         name: 'VG家宽',
         proxies: [homeAuto.name, ...allProxiesWithVg],
         icon: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Clubhouse_1.png',
       });
+      vgCfGroups.push(homeAuto);
       vgCfGroupNames.push('VG家宽');
     }
   }
@@ -1184,9 +1186,7 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
 
     let groupProxies = [];
     if (svc.includeAll) {
-      groupProxies = (svc.baseOption.type === 'url-test' || svc.baseOption.type === 'load-balance')
-        ? allProxiesNames.filter((name) => !autoExcludeRegex.test(name))
-        : [...allProxiesNames];
+      groupProxies = allProxiesNames.filter((name) => !autoExcludeRegex.test(name));
     } else if (svc.reject) {
       groupProxies = ['REJECT', 'REJECT-DROP', 'PASS'];
     } else {
