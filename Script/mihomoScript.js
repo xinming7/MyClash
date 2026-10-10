@@ -1151,14 +1151,15 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
         icon: `${iconBaseUrl}Auto.svg`,
         hidden: false,
       };
-      vgCfGroups.push({
+      vgCfGroups.push(homeAuto);
+      vgCfGroupNames.push('VG家宽');
+      // VG家宽组对象暂存，在默认代理之后插入
+      var vgSelectGroup = {
         ...selectBaseOption,
         name: 'VG家宽',
         proxies: [homeAuto.name, ...allProxiesWithVg],
         icon: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Clubhouse_1.png',
-      });
-      vgCfGroups.push(homeAuto);
-      vgCfGroupNames.push('VG家宽');
+      };
     }
   }
 
@@ -1168,6 +1169,11 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     proxies: [...vgCfGroupNames, ...groupNamesOfSelect, ...baseGroupNames, ...customGroupNames],
     icon: `${iconBaseUrl}Proxy.svg`,
   });
+
+  // VG家宽插在默认代理之后
+  if (typeof vgSelectGroup !== 'undefined') {
+    functionalGroups.push(vgSelectGroup);
+  }
 
   const orderedServiceConfigs = [
     ...serviceConfigs.filter((svc) => svc.name === 'AdBlock'),
@@ -1709,10 +1715,10 @@ function main(config) {
   newConfig['proxies'] = [...mappedProxies, ...customProxies, ...directProxies];
   newConfig['proxy-groups'] = [
     globalGroup,
-    ...vgCfGroups,
     ...functionalGroups,
     ...(customGroup ? [customGroup] : []),
     ...(chainGroup ? [chainGroup] : []),
+    ...vgCfGroups,
     directGroup,
     ...generatedRegionGroups,
   ];
