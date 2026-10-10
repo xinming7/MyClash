@@ -1125,7 +1125,7 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
   const vgCfGroupNames = [];
   if (ruleOptionsEnable.VG) {
     const allProxiesWithVg = allProxiesNames.filter((name) => vgRegex.test(name));
-    const cfProxies = allProxiesNames.filter((name) => /优选/.test(name));
+    const cfProxies = allProxiesNames.filter((name) => autoExcludeRegex.test(name));
 
     if (cfProxies.length > 0) {
       vgCfGroups.push({
