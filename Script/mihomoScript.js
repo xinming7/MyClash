@@ -1122,6 +1122,46 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     icon: `${iconBaseUrl}Proxy.svg`,
   });
 
+  // --- VG / CF 前置策略组 ---
+  const vgCfGroups = [];
+  const vgCfGroupNames = [];
+  if (ruleOptionsEnable.VG) {
+    const allProxiesWithVg = allProxiesNames.filter((name) => vgRegex.test(name));
+    const cfProxies = allProxiesNames.filter((name) => /优选/.test(name));
+
+    if (cfProxies.length > 0) {
+      vgCfGroups.push({
+        ...urlTestBaseOption,
+        name: '⚡ CF前置',
+        proxies: cfProxies,
+        'exclude-filter': '',
+        icon: 'https://gh-proxy.org/https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/cloudflare-color.png',
+        hidden: false,
+      });
+      vgCfGroupNames.push('⚡ CF前置');
+    }
+    if (allProxiesWithVg.length > 0) {
+      const homeAuto = {
+        ...groupBaseOption,
+        type: 'url-test',
+        tolerance: 50,
+        'exclude-type': 'DIRECT',
+        name: '🏠 家宽自动',
+        proxies: allProxiesWithVg,
+        icon: `${iconBaseUrl}Auto.svg`,
+        hidden: false,
+      };
+      vgCfGroups.push(homeAuto);
+      vgCfGroups.push({
+        ...selectBaseOption,
+        name: 'VG家宽',
+        proxies: [homeAuto.name, ...allProxiesWithVg],
+        icon: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Clubhouse_1.png',
+      });
+      vgCfGroupNames.push('VG家宽');
+    }
+  }
+
   const orderedServiceConfigs = [
     ...serviceConfigs.filter((svc) => svc.name === 'AdBlock'),
     ...serviceConfigs.filter((svc) => svc.name !== 'AdBlock'),
@@ -1144,12 +1184,11 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     } else if (svc.reject) {
       groupProxies = ['REJECT', 'REJECT-DROP', 'PASS'];
     } else {
-      const vgGroupNames = ruleOptionsEnable.VG ? ['⚡ CF前置', 'VG家宽'] : [];
       groupProxies = !addAllNodesToServiceGroupsEnabled
-        ? ['默认代理', ...vgGroupNames, ...customGroupNames, ...baseGroupNames, ...groupNamesOfSelect, ...(svc.direct ? ['直连'] : [])]
+        ? ['默认代理', ...vgCfGroupNames, ...customGroupNames, ...baseGroupNames, ...groupNamesOfSelect, ...(svc.direct ? ['直连'] : [])]
         : [
             '默认代理',
-            ...vgGroupNames,
+            ...vgCfGroupNames,
             ...customGroupNames,
             ...baseGroupNames,
             ...groupNamesOfSelect,
@@ -1172,42 +1211,9 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
   functionalGroups.push({
     ...selectBaseOption,
     name: '漏网之鱼',
-    proxies: ['默认代理', ...(ruleOptionsEnable.VG ? ['⚡ CF前置', 'VG家宽'] : []), '直连', ...groupNamesOfSelect],
+    proxies: ['默认代理', ...vgCfGroupNames, '直连', ...groupNamesOfSelect],
     icon: `${iconBaseUrl}Stack.svg`,
   });
-
-  // --- VG / CF 前置策略组 ---
-  const vgCfGroups = [];
-  if (ruleOptionsEnable.VG) {
-    const allProxiesWithVg = allProxiesNames.filter((name) => vgRegex.test(name));
-    const cfProxies = allProxiesNames.filter((name) => /优选/.test(name));
-
-    const homeAuto = {
-      ...groupBaseOption,
-      type: 'url-test',
-      tolerance: 50,
-      'exclude-type': 'DIRECT',
-      name: '🏠 家宽自动',
-      proxies: allProxiesWithVg,
-      icon: `${iconBaseUrl}Auto.svg`,
-      hidden: false,
-    };
-    const vgSelect = {
-      ...selectBaseOption,
-      name: 'VG家宽',
-      proxies: [homeAuto.name, ...allProxiesWithVg],
-      icon: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Clubhouse_1.png',
-    };
-    const cfPre = {
-      ...urlTestBaseOption,
-      name: '⚡ CF前置',
-      proxies: cfProxies,
-      'exclude-filter': '',
-      icon: 'https://gh-proxy.org/https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/cloudflare-color.png',
-      hidden: false,
-    };
-    vgCfGroups.push(cfPre, vgSelect, homeAuto);
-  }
 
   const directGroup = {
     ...selectBaseOption,
