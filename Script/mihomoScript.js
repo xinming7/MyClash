@@ -1183,9 +1183,12 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     const cfProxies = allProxiesNames.filter((name) => /优选/.test(name));
 
     const homeAuto = {
-      ...urlTestBaseOption,
+      ...groupBaseOption,
+      type: 'url-test',
+      tolerance: 50,
+      'exclude-type': 'DIRECT',
       name: '🏠 家宽自动',
-      proxies: allProxiesWithVg.filter((name) => !/优选/.test(name)),
+      proxies: allProxiesWithVg,
       icon: `${iconBaseUrl}Auto.svg`,
       hidden: false,
     };
