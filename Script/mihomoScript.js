@@ -1146,6 +1146,8 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
       finalRuleProviders,
       chainGroup,
       directGroup,
+      // 极简模式不生成 VG / CF 前置组，但 main() 会无条件解构该字段，必须返回数组
+      vgCfGroups: [],
     };
   }
 
