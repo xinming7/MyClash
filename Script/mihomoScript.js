@@ -67,7 +67,11 @@ const ruleOptionsEnable = {
 // 定义前置规则
 const prefixRules = [
   // 规则集下载域名，避免出现鸡蛋问题
+  // 这些域名必须直连，否则规则集拉取会走代理形成循环依赖（节点不可用时全部拉取失败）
   'DOMAIN,cdn.jsdmirror.com,直连',
+  'DOMAIN,v6.gh-proxy.org,直连',
+  'DOMAIN,gh-proxy.org,直连',
+  'DOMAIN,static-file-global.353355.xyz,直连',
 
   // 自定义规则集（ruleset-builder 产物，独立维护，始终生效）
   'RULE-SET,custom_proxy,默认代理',
@@ -489,7 +493,7 @@ const serviceConfigs = [
       },
     },
     icon: `${iconBaseUrl}Microsoft.svg`,
-    rules: ['RULE-SET,github,默认代理', 'RULE-SET,microsoft,Microsoft', 'RULE-SET,microsoft_ip,Microsoft,no-resolve'],
+    rules: ['RULE-SET,microsoft,Microsoft', 'RULE-SET,microsoft_ip,Microsoft,no-resolve'],
   },
   {
     name: 'Apple',
@@ -1247,6 +1251,10 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
             ...(svc.direct ? ['直连'] : []),
           ];
     }
+
+    // includeAll 组不能为空：VG 开启时若订阅全是家宽/优选节点，过滤后会是空数组，
+    // 而 mihomo 校验阶段要求 select/url-test/load-balance 组必须有 proxies 或 use
+    if (svc.includeAll && groupProxies.length === 0) groupProxies = [...allProxiesNames];
 
     functionalGroups.push({
       ...svc.baseOption,

@@ -29,6 +29,8 @@
 - **保留链式代理**：上游已移除，本 fork 保留并改为自动指向「链式中转」策略组
 - **VG 开关职责收敛**：`VG` 只控制家宽相关策略组及其节点排除，不再控制自定义规则集；关闭 VG 时家宽/优选节点会正常归入地区组，而不会凭空消失
 - **新增自定义规则集**：接入 `custom_proxy` / `custom_direct` / `custom_direct_ip` 分流规则与 `custom_fakeip_filter` 假 IP 过滤，来自 [ruleset-builder](https://github.com/xinming7/ruleset-builder)，不受任何开关控制、始终生效
+- **修复配置加载失败**：关闭 `GitHub` 开关时 `Microsoft` 组残留的 `github` 规则集引用、以及订阅仅含家宽/优选节点时基础组为空，此前都会让 mihomo 校验失败
+- **补全规则集下载直连域名**：`v6.gh-proxy.org`、`gh-proxy.org`、`static-file-global.353355.xyz` 加入前置直连，避免规则集拉取时走代理形成循环依赖
 
 使用本 fork 的改动时，全量版脚本请导入以下链接（精简版与配置文件仍可用上面上游的链接）：
 
