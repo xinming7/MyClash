@@ -20,16 +20,15 @@
 
 ## 本 Fork 的改动
 
-本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)。全量版脚本 `Script/mihomoScript.js` 改动最多；精简版脚本 `Script/Script.js` 已同步 `GitHub` 策略组、极简模式与自定义规则集，但不含链式代理、VG 家宽等全量版独有功能。
+本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)。改动集中在全量版脚本 `Script/mihomoScript.js`；精简版脚本 `Script/Script.js` 已同步 `GitHub` 策略组与自定义规则集，但不含链式代理、VG 家宽等全量版独有功能。
 
 - **新增 `GitHub` 分流策略组**：为 GitHub 域名单独分流，图标复用上游 GitHub 图标（全量版与精简版均已支持）
-- **精简版补齐功能**：精简版同步获得 `GitHub` 策略组、极简模式开关与 4 个自定义规则集，与全量版行为保持一致
-- **同步上游增强**：零宽/不可见字符节点名匹配、公共 DNS 过滤项扩充、新增 `GitHub` 分流组
+- **同步上游增强**：零宽/不可见字符节点名匹配、公共 DNS 过滤项扩充（全量版与精简版均已同步）
 - **同步上游规则修复**：补回 `DOMAIN,cdn.jsdmirror.com,直连` 前置规则（避免规则集下载的鸡蛋问题），移除「圣地亚哥」地区匹配词
 - **修复极简模式崩溃**：修复开启“极简模式”时的 `TypeError: vgCfGroups is not iterable`
 - **保留链式代理**：上游已移除，本 fork 保留并改为自动指向「链式中转」策略组
 - **VG 开关职责收敛**：`VG` 只控制家宽相关策略组及其节点排除，不再控制自定义规则集；关闭 VG 时家宽/优选节点会正常归入地区组，而不会凭空消失
-- **新增自定义规则集**：接入 `custom_proxy` / `custom_direct` / `custom_direct_ip` 分流规则与 `custom_fakeip_filter` 假 IP 过滤，来自 [ruleset-builder](https://github.com/xinming7/ruleset-builder)，不受任何开关控制、始终生效
+- **新增自定义规则集**：接入 `custom_proxy` / `custom_direct` / `custom_direct_ip` 分流规则与 `custom_fakeip_filter` 假 IP 过滤，来自 [ruleset-builder](https://github.com/xinming7/ruleset-builder)，不受任何开关控制、始终生效（全量版与精简版均已接入）
 - **修复配置加载失败**：关闭 `GitHub` 开关时 `Microsoft` 组残留的 `github` 规则集引用、以及订阅仅含家宽/优选节点时基础组为空，此前都会让 mihomo 校验失败
 - **补全规则集下载直连域名**：`v6.gh-proxy.org`、`gh-proxy.org`、`static-file-global.353355.xyz` 加入前置直连，避免规则集拉取时走代理形成循环依赖
 - **链式代理行为修正**：链式代理只对未配置 `dialer-proxy` 的自定义节点生效，不再覆盖用户手写的多级链路；关闭时会清理悬空引用

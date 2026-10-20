@@ -291,6 +291,43 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
       h.assert(!out.rules.some((rule) => /,(Google|AI|Telegram|Steam|AdBlock)$/.test(rule)), '不应生成分流规则');
     }),
   );
+  h.test('GitHub 开关关闭 → 不生成 GitHub 组、不注册 provider、不留悬空规则', () =>
+    withOptions(api, { GitHub: false }, () => {
+      const out = api.main(fx.typicalSubscription());
+      h.assert(!groupByName(out['proxy-groups'], 'GitHub'), '不应生成 GitHub 组');
+      h.assert(!out['rule-providers'].github, '不应注册 github provider');
+      h.assert(!out.rules.some((rule) => rule.includes(',github,')), '不应残留 github 规则');
+      // 精简版没有 Microsoft 组，只对全量版校验
+      if (meta.full) {
+        h.assert(groupByName(out['proxy-groups'], 'Microsoft'), 'Microsoft 组应仍然存在');
+      }
+    }),
+  );
+  h.test('GitHub 开关开启 → 生成 GitHub 组与对应 provider/规则', () => {
+    const out = api.main(fx.typicalSubscription());
+    h.assert(groupByName(out['proxy-groups'], 'GitHub'), '应生成 GitHub 组');
+    h.assert(out['rule-providers'].github, '应注册 github provider');
+    h.assert(out.rules.includes('RULE-SET,github,GitHub'), '应生成指向 GitHub 组的规则');
+  });
+  h.test('自定义规则集：始终注册 provider 且规则成对，不依赖任何开关', () =>
+    withOptions(api, { 极简模式: false, VG: true }, () => {
+      const out = api.main(fx.typicalSubscription());
+      for (const name of ['custom_proxy', 'custom_direct', 'custom_direct_ip', 'custom_fakeip_filter']) {
+        h.assert(out['rule-providers'][name], `应注册 ${name} provider`);
+      }
+      h.assert(out.rules.includes('RULE-SET,custom_proxy,默认代理'), 'custom_proxy 规则应存在');
+      h.assert(out.rules.includes('RULE-SET,custom_direct,直连'), 'custom_direct 规则应存在');
+      h.assert(out.rules.includes('RULE-SET,custom_direct_ip,直连,no-resolve'), 'custom_direct_ip 规则应存在');
+      h.assert(
+        out.dns['fake-ip-filter'].includes('rule-set:custom_fakeip_filter'),
+        'custom_fakeip_filter 应注册进 fake-ip-filter',
+      );
+      // 规则集源域名必须走直连，否则拉取时会走代理形成循环依赖
+      for (const host of ['cdn.jsdmirror.com', 'static-file-global.353355.xyz']) {
+        h.assert(out.rules.includes(`DOMAIN,${host},直连`), `${host} 应在前置规则中直连`);
+      }
+    }),
+  );
   h.test('过滤高倍率节点=true → 移除高倍率节点及组', () =>
     withOptions(api, { 过滤高倍率节点: true }, () => {
       const out = api.main(fx.minimalSubscription());
