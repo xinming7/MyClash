@@ -66,6 +66,9 @@ const ruleOptionsEnable = {
 
 // 定义前置规则
 const prefixRules = [
+  // 规则集下载域名，避免出现鸡蛋问题
+  'DOMAIN,cdn.jsdmirror.com,直连',
+
   // 自定义规则集（VG 家宽相关，优先级最高）
   ...(ruleOptionsEnable.VG ? ['RULE-SET,custom_proxy,默认代理', 'RULE-SET,custom_direct,直连'] : []),
 
@@ -170,7 +173,7 @@ const regionDefinitions = [
     name: '美国',
     flag: '🇺🇸',
     regex:
-      /🇺🇸|美国|纽约|洛杉矶|旧金山|芝加哥|休斯顿|迈阿密|西雅图|波士顿|华盛顿|拉斯维加斯|圣何塞|圣地亚哥|(?<![A-Za-z])USA?(?![A-Za-z])|america|united\s*states/i,
+      /🇺🇸|美国|纽约|洛杉矶|旧金山|芝加哥|休斯顿|迈阿密|西雅图|波士顿|华盛顿|拉斯维加斯|圣何塞|(?<![A-Za-z])USA?(?![A-Za-z])|america|united\s*states/i,
     icon: `${iconBaseUrl}America.svg`,
   },
   {

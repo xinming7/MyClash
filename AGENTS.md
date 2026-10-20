@@ -39,7 +39,9 @@
 ## 改这个项目时的坑
 - **图标与规则源基址硬编码指向上游 fork**：`Script/mihomoScript.js:149` 与 `Script/Script.js:125` 的 `iconBaseUrl` 指向 `cdn.jsdmirror.com/gh/AIsouler/MyClash@main/...`，规则源基址在 `Script/mihomoScript.js:152` / `Script/Script.js:128`（`appshubcc/bett-rules@meta/geo/`）。所以在自己 fork 里改图标不会被实际引用，改图标必须**同时改掉脚本里的基址**。
 - **完整版 / lite 版是两份脚本**：`Script/mihomoScript.js`（`function main(config)` 在 `Script/mihomoScript.js:1651`）与 `Script/Script.js`（`main` 在 `Script/Script.js:1235`）。改一处必须同步改另一处，否则两版行为分叉。
-- **下游消费 ruleset-builder 的产物**：完整版脚本在 `Script/mihomoScript.js:1725`（`custom_proxy.mrs`）与 `:1730`（`custom_direct.mrs`）拉取 ruleset-builder 的 `rules` 分支产物，由 `ruleOptionsEnable.VG`（`Script/mihomoScript.js:19`）门控；lite 版与两个 `Config/*.yaml` 完全没有这些引用。
+- **下游消费 ruleset-builder 的产物**：完整版脚本在 `Script/mihomoScript.js:1835`（`custom_proxy.mrs`）与 `:1840`（`custom_direct.mrs`）拉取 `xinming7/ruleset-builder` 的 `rules` 分支产物（URL 走 `v6.gh-proxy.org` 前缀），由 `ruleOptionsEnable.VG`（`Script/mihomoScript.js:64`）门控；lite 版与两个 `Config/*.yaml` 完全没有这些引用。
+- **同步上游时不能只 diff 一个文件**：上游经常一个提交同时改 `Script/mihomoScript.js`、`Script/Script.js`、`Config/mihomoConfig.yaml`、`Config/mihomoConfigLite.yaml`。2026-10 就漏过一次：上游 `badd718b`「显式定义规则集下载域名规则，避免出现鸡蛋问题」四个文件各 +3 行（在两处 `prefixRules` 与两处 YAML `rules:` 段首插入 `DOMAIN,cdn.jsdmirror.com,直连`），本 fork 当时只 diff 了全量版脚本，整条漏掉，两天后才发现。**正确做法**：先 `curl -s "https://api.github.com/repos/AIsouler/MyClash/commits?per_page=20"` 列出上游提交，再对可疑提交取 `commits/<sha>` 看 `files` 数组，逐个文件核对，而不是只看 `Script/mihomoScript.js`。
+- **本 fork 有意偏离上游的地方**（同步时别顺手改回去）：`生成倍率组` 默认 `false`（上游 `true`）；地区名用 `台湾省`（上游 `台湾`）；保留链式代理功能（上游 `cf3d3f6a` 已整体移除，含 100+ 行测试）；新增 VG 家宽功能（`vgRegex`、`autoExcludeRegex`、`vgCfGroups`）；自动选择组里「自动选择」排在 `proxies` 首位（上游排末位）。
 - **空占位必须用户自填**：`Config/mihomoConfig.yaml:29` 的 `url` 与 `:30` 的 `age-secret-key` 是空串占位（`Config/mihomoConfigLite.yaml:29-30` 同样），分别填机场订阅链接与解密私钥；仓库内没有任何已提交的订阅或密钥。
 - **改了不 push 等于没改**：jsDelivr 服务的是 `@main`，`AGENT.md:815` 明确要求 commit+push 后改动才生效。
 - **测试依赖不装会静默跳过**：`Test/package.json` 的 devDeps（`espree@^9.6.1`、`quickjs-emscripten@^0.32.0`）缺失时，ES2020/QuickJS 检查直接略过，看起来仍然"通过"。

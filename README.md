@@ -20,11 +20,13 @@
 
 ## 本 Fork 的改动
 
-本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)，仅修改全量版脚本 `Script/mihomoScript.js`，精简版脚本与配置文件保持上游原样。
+本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)，改动集中在全量版脚本 `Script/mihomoScript.js`；精简版脚本与配置文件跟随上游同步，不含 fork 独有功能。
 
 - **新增 `GitHub` 分流策略组**：为 GitHub 域名单独分流，图标复用上游 GitHub 图标
-- **增强节点名识别**：节点名含零宽字符时也能正确匹配，公共 DNS 列表有所扩充
+- **同步上游增强**：零宽/不可见字符节点名匹配、公共 DNS 过滤项扩充、新增 `GitHub` 分流组
+- **同步上游规则修复**：补回 `DOMAIN,cdn.jsdmirror.com,直连` 前置规则（避免规则集下载的鸡蛋问题），移除「圣地亚哥」地区匹配词
 - **修复极简模式崩溃**：修复开启“极简模式”时的 `TypeError: vgCfGroups is not iterable`
+- **保留链式代理**：上游已移除，本 fork 保留并改为自动指向「链式中转」策略组
 
 使用本 fork 的改动时，全量版脚本请导入以下链接（精简版与配置文件仍可用上面上游的链接）：
 
