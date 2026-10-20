@@ -10,7 +10,7 @@
 
 - 🧩 **丰富的分流策略组**：内置 AI、GitHub、YouTube、Google、Telegram、Steam、Netflix、Spotify 等常用分流组，可按需启用
 - 🎨 **精美图标**：策略组采用精心绘制的 SVG 图标，支持无损缩放与高清渲染，任意尺寸下均保持清晰
-- 🌏 **地区节点自动分组**：自动识别香港、日本、美国、新加坡、台湾省等地区，并生成对应策略组
+- 🌏 **地区节点自动分组**：自动识别香港、日本、美国、新加坡、台湾等地区，并生成对应策略组
 - 🧹 **节点智能整理**：自动补国旗、优化节点名称、过滤无效节点，并按倍率自动分类
 - 🪶 **轻量规则方案**：采用 `rule-set` 按需加载规则，减少配置体积与内存占用
 - 🛡️ **无 DNS 泄露**：DNS 配置与路由规则配套设计，解决 DNS 泄露问题
@@ -20,9 +20,10 @@
 
 ## 本 Fork 的改动
 
-本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)，改动集中在全量版脚本 `Script/mihomoScript.js`；精简版脚本与配置文件跟随上游同步，不含 fork 独有功能。
+本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)。全量版脚本 `Script/mihomoScript.js` 改动最多；精简版脚本 `Script/Script.js` 已同步 `GitHub` 策略组、极简模式与自定义规则集，但不含链式代理、VG 家宽等全量版独有功能。
 
-- **新增 `GitHub` 分流策略组**：为 GitHub 域名单独分流，图标复用上游 GitHub 图标
+- **新增 `GitHub` 分流策略组**：为 GitHub 域名单独分流，图标复用上游 GitHub 图标（全量版与精简版均已支持）
+- **精简版补齐功能**：精简版同步获得 `GitHub` 策略组、极简模式开关与 4 个自定义规则集，与全量版行为保持一致
 - **同步上游增强**：零宽/不可见字符节点名匹配、公共 DNS 过滤项扩充、新增 `GitHub` 分流组
 - **同步上游规则修复**：补回 `DOMAIN,cdn.jsdmirror.com,直连` 前置规则（避免规则集下载的鸡蛋问题），移除「圣地亚哥」地区匹配词
 - **修复极简模式崩溃**：修复开启“极简模式”时的 `TypeError: vgCfGroups is not iterable`
@@ -33,10 +34,11 @@
 - **补全规则集下载直连域名**：`v6.gh-proxy.org`、`gh-proxy.org`、`static-file-global.353355.xyz` 加入前置直连，避免规则集拉取时走代理形成循环依赖
 - **链式代理行为修正**：链式代理只对未配置 `dialer-proxy` 的自定义节点生效，不再覆盖用户手写的多级链路；关闭时会清理悬空引用
 
-使用本 fork 的改动时，全量版脚本请导入以下链接（精简版与配置文件仍可用上面上游的链接）：
+使用本 fork 的改动时，请导入以下脚本链接（配置文件仍可用上面上游的链接）：
 
 ```text
 https://raw.githubusercontent.com/xinming7/MyClash/main/Script/mihomoScript.js
+https://raw.githubusercontent.com/xinming7/MyClash/main/Script/Script.js
 ```
 
 ## 版本选择

@@ -39,8 +39,10 @@ function runUnitTests(h, api, meta) {
   h.test('JAPAN-02 → 日本', () => h.assert(matched('JAPAN-02').includes('日本')));
   h.test('US-LosAngeles-02 → 美国', () => h.assert(matched('US-LosAngeles-02').includes('美国')));
   h.test('SG 01 | 新加坡 → 新加坡', () => h.assert(matched('SG 01 | 新加坡').includes('新加坡')));
-  h.test('台湾 01 → 台湾省（仅全量版）', () => {
-    if (meta.full) h.assert(matched('台湾 01').includes('台湾省'));
+  h.test('台湾 01 → 台湾', () => h.assert(matched('台湾 01').includes('台湾')));
+  h.test('零宽字符干扰的节点名仍能匹配地区', () => {
+    h.assert(matched('台\u200B湾 02').includes('台湾'), '逐字符插入零宽空格仍应识别台湾');
+    h.assert(matched('香\u200B港 03').includes('香港'), '逐字符插入零宽空格仍应识别香港');
   });
   h.test('日本 0.3x 流量 → 低倍率节点 + 日本', () => {
     const n = matched('日本 0.3x 流量');
