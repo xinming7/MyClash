@@ -27,6 +27,8 @@
 - **同步上游规则修复**：补回 `DOMAIN,cdn.jsdmirror.com,直连` 前置规则（避免规则集下载的鸡蛋问题），移除「圣地亚哥」地区匹配词
 - **修复极简模式崩溃**：修复开启“极简模式”时的 `TypeError: vgCfGroups is not iterable`
 - **保留链式代理**：上游已移除，本 fork 保留并改为自动指向「链式中转」策略组
+- **VG 开关职责收敛**：`VG` 只控制家宽相关策略组及其节点排除，不再控制自定义规则集；关闭 VG 时家宽/优选节点会正常归入地区组，而不会凭空消失
+- **新增自定义规则集**：接入 `custom_proxy` / `custom_direct` / `custom_direct_ip` 分流规则与 `custom_fakeip_filter` 假 IP 过滤，来自 [ruleset-builder](https://github.com/xinming7/ruleset-builder)，不受任何开关控制、始终生效
 
 使用本 fork 的改动时，全量版脚本请导入以下链接（精简版与配置文件仍可用上面上游的链接）：
 

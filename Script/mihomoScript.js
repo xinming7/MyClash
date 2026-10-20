@@ -69,8 +69,10 @@ const prefixRules = [
   // 规则集下载域名，避免出现鸡蛋问题
   'DOMAIN,cdn.jsdmirror.com,直连',
 
-  // 自定义规则集（VG 家宽相关，优先级最高）
-  ...(ruleOptionsEnable.VG ? ['RULE-SET,custom_proxy,默认代理', 'RULE-SET,custom_direct,直连'] : []),
+  // 自定义规则集（ruleset-builder 产物，独立维护，始终生效）
+  'RULE-SET,custom_proxy,默认代理',
+  'RULE-SET,custom_direct,直连',
+  'RULE-SET,custom_direct_ip,直连,no-resolve',
 
   // 私有网络直连
   'RULE-SET,private,直连',
@@ -1006,7 +1008,8 @@ function buildRegionGroups(filteredProxies, customProxies) {
   const otherProxies = [];
 
   for (const proxy of [...filteredProxies, ...customProxies]) {
-    if (autoExcludeRegex.test(proxy.name) || vgRegex.test(proxy.name)) continue;
+    // 仅启用 VG 时才排除家宽/优选节点，避免关闭 VG 后这些节点凭空消失
+    if (ruleOptionsEnable.VG && (autoExcludeRegex.test(proxy.name) || vgRegex.test(proxy.name))) continue;
 
     const matchedRegions = getMatchedRegions(proxy.name);
     const isRegionProxy = matchedRegions.some((region) => regionDefinitions.includes(region));
@@ -1219,7 +1222,9 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
 
     let groupProxies = [];
     if (svc.includeAll) {
-      groupProxies = allProxiesNames.filter((name) => !autoExcludeRegex.test(name) && !vgRegex.test(name));
+      groupProxies = ruleOptionsEnable.VG
+        ? allProxiesNames.filter((name) => !autoExcludeRegex.test(name) && !vgRegex.test(name))
+        : [...allProxiesNames];
     } else if (svc.reject) {
       groupProxies = ['REJECT', 'REJECT-DROP', 'PASS'];
     } else {
@@ -1718,6 +1723,7 @@ function buildDnsAndHostsConfig(config, filteredProxies) {
     'fake-ip-filter': [
       'rule-set:private',
       'rule-set:fakeip_filter',
+      'rule-set:custom_fakeip_filter',
       'rule-set:geolocation-cn',
       ...(minimalModeEnabled ? [] : ruleOptionsEnable['FCM'] ? ['rule-set:googlefcm'] : []),
       ...proxyFakeIpFilter,
@@ -1830,20 +1836,27 @@ function main(config) {
   ];
   newConfig['rule-providers'] = {
     ...finalRuleProviders,
-    ...(ruleOptionsEnable.VG
-      ? {
-          custom_proxy: {
-            ...ruleProviderCommonDomain,
-            url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_proxy.mrs',
-            path: './rules/custom_proxy.mrs',
-          },
-          custom_direct: {
-            ...ruleProviderCommonDomain,
-            url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_direct.mrs',
-            path: './rules/custom_direct.mrs',
-          },
-        }
-      : {}),
+    // 自定义规则集（ruleset-builder 产物，独立维护，始终生效）
+    custom_proxy: {
+      ...ruleProviderCommonDomain,
+      url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_proxy.mrs',
+      path: './rules/custom_proxy.mrs',
+    },
+    custom_direct: {
+      ...ruleProviderCommonDomain,
+      url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_direct.mrs',
+      path: './rules/custom_direct.mrs',
+    },
+    custom_fakeip_filter: {
+      ...ruleProviderCommonDomain,
+      url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_fakeip_filter.mrs',
+      path: './rules/custom_fakeip_filter.mrs',
+    },
+    custom_direct_ip: {
+      ...ruleProviderCommonIpcidr,
+      url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_direct_ip.mrs',
+      path: './rules/custom_direct_ip.mrs',
+    },
   };
 
   newConfig['rules'] = [

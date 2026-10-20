@@ -1,9 +1,11 @@
 # MyClash
 
 ## 这是什么
+
 面向 mihomo 内核客户端的**覆写脚本 + 静态配置**仓库，是 `AIsouler/MyClash` 的 fork（remote 为 https://github.com/xinming7/MyClash.git，分支 `main`，工作区干净）。它在配置加载期把机场订阅重写成策略组 + 路由，不预生成任何产物；分发靠客户端直接导入 raw URL。入口文件：`Script/mihomoScript.js`（完整版，1750 行）与 `Script/Script.js`（lite 版，1317 行）。
 
 ## 技术栈
+
 - JavaScript ES2020：由 mihomo 的覆写脚本引擎执行，必须保持 ES2020 兼容
 - YAML：mihomo 配置（proxy-providers / proxy-groups / rule-providers / rules / DNS）
 - Node.js 测试套件：`espree`（ES2020 语法检查）+ `quickjs-emscripten`（真实引擎跑 `main()`），只是 devDependencies
@@ -11,6 +13,7 @@
 - 无构建步骤、无运行时依赖；38 对 SVG/PNG 图标在 `Icons/svg`、`Icons/png`
 
 ## 常用命令
+
 - 安装依赖：`npm --prefix Test install`（只装测试依赖；根目录没有 package.json）
 - 测试/校验：`node Test/run-tests.js`（CI 同款）
   - 单跑某项：`node Test/run-tests.js --node`、`--es2020`、`--quickjs`
@@ -24,24 +27,29 @@
   - 脚本头部自述的 fork URL：`https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/main/Script/mihomoScript.js`
 
 ## 改动流程（用户明确要求）
+
 **每次改完代码，在 commit / push 之前先告诉用户 `README.md` 要不要更新、具体改哪几行、改成什么，
 等用户确认后再提交。** README 里的部署方式、配置项、API 端点、可靠性行为都可能随改动过期。
 
 同理，`AGENTS.md` 本身记录的环境事实（部署方式、凭据状态、已知坑）如果被改动影响，也要一并更新。
 
 ## 部署与 CI
+
 只有一个 workflow：`.github/workflows/format_and_test.yaml`。
+
 - 触发：`push`（限定 `main` + 路径 `Script/*`、`Test/**`、`**/*.yaml`、`**/*.yml`、`.prettierrc*`）、同样路径的 `pull_request`、`workflow_dispatch`。**没有 cron，也没有 release/artifact**，合并到 `main` 不会自动发版。
 - job `format`（PR 时跳过，`contents: write`）：装 prettier 后对受控 `.js/.yml/.yaml` 跑 `prettier --write`，有 diff 就以 `github-actions[bot]` 提交 `chore: auto format` 并 push。
 - job `test`（`needs: format`）：`npm --prefix Test install` 后跑 `node Test/run-tests.js`。
 - 产物：无。dist 就是 raw URL 本身；图标与规则源走 jsDelivr（`cdn.jsdmirror.com`），改动必须 commit+push 后客户端才拿得到。
 
 ## 改这个项目时的坑
+
 - **图标与规则源基址硬编码指向上游 fork**：`Script/mihomoScript.js:149` 与 `Script/Script.js:125` 的 `iconBaseUrl` 指向 `cdn.jsdmirror.com/gh/AIsouler/MyClash@main/...`，规则源基址在 `Script/mihomoScript.js:152` / `Script/Script.js:128`（`appshubcc/bett-rules@meta/geo/`）。所以在自己 fork 里改图标不会被实际引用，改图标必须**同时改掉脚本里的基址**。
 - **完整版 / lite 版是两份脚本**：`Script/mihomoScript.js`（`function main(config)` 在 `Script/mihomoScript.js:1651`）与 `Script/Script.js`（`main` 在 `Script/Script.js:1235`）。改一处必须同步改另一处，否则两版行为分叉。
-- **下游消费 ruleset-builder 的产物**：完整版脚本在 `Script/mihomoScript.js:1835`（`custom_proxy.mrs`）与 `:1840`（`custom_direct.mrs`）拉取 `xinming7/ruleset-builder` 的 `rules` 分支产物（URL 走 `v6.gh-proxy.org` 前缀），由 `ruleOptionsEnable.VG`（`Script/mihomoScript.js:64`）门控；lite 版与两个 `Config/*.yaml` 完全没有这些引用。
+- **下游消费 ruleset-builder 的产物**：完整版脚本从 `xinming7/ruleset-builder` 的 `rules` 分支拉取 4 份规则集（URL 全部走 `v6.gh-proxy.org` 前缀），在 `newConfig['rule-providers']` 里登记：`custom_proxy`（domain/`默认代理`）、`custom_direct`（domain/`直连`）、`custom_direct_ip`（**ipcidr**，规则带 `no-resolve`）、`custom_fakeip_filter`（domain，注册进 `dns.fake-ip-filter` 而非 `rules`）。这 4 个**不受任何开关控制、始终生效**。`ruleOptionsEnable.VG`（`Script/mihomoScript.js:64`）只控制三件事：家宽/CF 前置策略组的生成（`Script/mihomoScript.js:1163` 起）、`vgRegex` 与 `autoExcludeRegex` 的节点排除（`Script/mihomoScript.js:1012`、`:1225`）、`vgCfGroupNames` 注入。lite 版与两个 `Config/*.yaml` 完全没有这些引用。
 - **同步上游时不能只 diff 一个文件**：上游经常一个提交同时改 `Script/mihomoScript.js`、`Script/Script.js`、`Config/mihomoConfig.yaml`、`Config/mihomoConfigLite.yaml`。2026-10 就漏过一次：上游 `badd718b`「显式定义规则集下载域名规则，避免出现鸡蛋问题」四个文件各 +3 行（在两处 `prefixRules` 与两处 YAML `rules:` 段首插入 `DOMAIN,cdn.jsdmirror.com,直连`），本 fork 当时只 diff 了全量版脚本，整条漏掉，两天后才发现。**正确做法**：先 `curl -s "https://api.github.com/repos/AIsouler/MyClash/commits?per_page=20"` 列出上游提交，再对可疑提交取 `commits/<sha>` 看 `files` 数组，逐个文件核对，而不是只看 `Script/mihomoScript.js`。
-- **本 fork 有意偏离上游的地方**（同步时别顺手改回去）：`生成倍率组` 默认 `false`（上游 `true`）；地区名用 `台湾省`（上游 `台湾`）；保留链式代理功能（上游 `cf3d3f6a` 已整体移除，含 100+ 行测试）；新增 VG 家宽功能（`vgRegex`、`autoExcludeRegex`、`vgCfGroups`）；自动选择组里「自动选择」排在 `proxies` 首位（上游排末位）。
+- **本 fork 有意偏离上游的地方**（同步时别顺手改回去）：`生成倍率组` 默认 `false`（上游 `true`）；地区名用 `台湾省`（上游 `台湾`）；保留链式代理功能（上游 `cf3d3f6a` 已整体移除，含 100+ 行测试）；新增 VG 家宽功能（`vgRegex`、`autoExcludeRegex`、`vgCfGroups`），其中 `vgCfGroupNames`（`Script/mihomoScript.js:1205/1234/1242/1265/1282`）**有意注入所有分流策略组**，便于把家宽节点作为任意分流目标，不是遗漏；自动选择组里「自动选择」排在 `proxies` 首位（上游排末位）。
+- **VG 开关的职责边界是收敛过的，别再把无关东西塞进去**：2026-10 做过一次收敛——`custom_proxy` / `custom_direct` 曾和 VG 绑在同一个三元表达式里（关 VG 就整条规则消失），现已解绑为独立「ruleset-builder 自定义规则集」块；`vgRegex` / `autoExcludeRegex` 的节点排除也加了 VG 门控（`Script/mihomoScript.js:1012`、`:1225`），否则关闭 VG 时家宽/优选节点会从所有策略组里凭空消失。判断标准：**VG 只管家宽与 CF 前置相关的东西**；自定义规则集、地区组归属、通用节点过滤都与家宽无关，不该受它控制。
 - **空占位必须用户自填**：`Config/mihomoConfig.yaml:29` 的 `url` 与 `:30` 的 `age-secret-key` 是空串占位（`Config/mihomoConfigLite.yaml:29-30` 同样），分别填机场订阅链接与解密私钥；仓库内没有任何已提交的订阅或密钥。
 - **改了不 push 等于没改**：jsDelivr 服务的是 `@main`，`AGENT.md:815` 明确要求 commit+push 后改动才生效。
 - **测试依赖不装会静默跳过**：`Test/package.json` 的 devDeps（`espree@^9.6.1`、`quickjs-emscripten@^0.32.0`）缺失时，ES2020/QuickJS 检查直接略过，看起来仍然"通过"。
@@ -51,5 +59,6 @@
 - **`buildFunctionalGroups()` 的返回值必须与 `main()` 的解构对齐**：`Script/mihomoScript.js:1283` 返回 `{ globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup, vgCfGroups }`，`main()` 在 `Script/mihomoScript.js:1773` **无条件**解构这 7 个字段。函数里每个提前 `return` 的分支都必须返回同构对象——2026-10 就踩过一次：极简模式分支漏了 `vgCfGroups`，导致 `TypeError: vgCfGroups is not iterable`（`75550f2` 起存在，`v1.0.0` 修复）。**上游 `AIsouler/MyClash` 没有这个 bug，是本 fork 合并 VG 功能时引入的回归**，别拿"上游也这样"当不改的理由。新增提前分支时记得同步补齐。
 
 ## 相关
+
 - 详细档案：`/Users/liujiaming/Documents/deepseek-harness/default-workspace/project-kb/MyClash.md`
 - 项目总索引：`/Users/liujiaming/Documents/deepseek-harness/default-workspace/project-kb/INDEX.md`
