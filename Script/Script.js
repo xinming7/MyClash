@@ -1446,22 +1446,22 @@ function main(config) {
     custom_proxy: {
       ...ruleProviderCommonDomain,
       url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_proxy.mrs',
-      path: './rules/custom_proxy.mrs',
+      path: './ruleset/custom_proxy.mrs',
     },
     custom_direct: {
       ...ruleProviderCommonDomain,
       url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_direct.mrs',
-      path: './rules/custom_direct.mrs',
+      path: './ruleset/custom_direct.mrs',
     },
     custom_fakeip_filter: {
       ...ruleProviderCommonDomain,
       url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_fakeip_filter.mrs',
-      path: './rules/custom_fakeip_filter.mrs',
+      path: './ruleset/custom_fakeip_filter.mrs',
     },
     custom_direct_ip: {
       ...ruleProviderCommonIpcidr,
       url: 'https://v6.gh-proxy.org/https://github.com/xinming7/ruleset-builder/raw/refs/heads/rules/mihomo/custom_direct_ip.mrs',
-      path: './rules/custom_direct_ip.mrs',
+      path: './ruleset/custom_direct_ip.mrs',
     },
   };
 
