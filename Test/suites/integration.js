@@ -524,7 +524,7 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
     h.assert(!groupByName(out['proxy-groups'], '链式中转'), '不应生成链式中转组');
   });
 
-  h.test('启用链式代理：生成链式中转组、自建- 前缀、强制 dialer-proxy', () => {
+  h.test('启用链式代理：生成链式中转组、自建- 前缀、按需补 dialer-proxy', () => {
     const customApi = loadScript(scriptFile, (code) =>
       code.replace('const customizeProxies = [];', chainCustomInjection),
     );
@@ -541,8 +541,8 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
       // 强制 dialer-proxy（覆盖已有值）
       h.assertEqual(
         out.proxies.find((x) => x.name === '🇭🇰 自建-香港 01 | 中转')['dialer-proxy'],
-        '链式中转',
-        '已有 dialer-proxy 应被覆盖',
+        '旧中转',
+        '用户显式配置的 dialer-proxy 应被保留，不应被覆盖',
       );
       h.assertEqual(
         out.proxies.find((x) => x.name === '自建独享')['dialer-proxy'],
@@ -602,6 +602,52 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
         '手动选择应含自建节点',
       );
       h.assert(global.proxies.includes('链式落地'), 'GLOBAL 应含链式落地组');
+    });
+  });
+
+  h.test('关闭链式代理：清掉指向链式中转的 dialer-proxy，避免悬空引用', () => {
+    const danglingInjection = `const customizeProxies = [
+      { name: '自建-手写中转', type: 'ss', server: 'c1.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x', 'dialer-proxy': '链式中转' },
+      { name: '自建-二级链路', type: 'ss', server: 'c2.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x', 'dialer-proxy': '自建-落地' },
+    ];`;
+    const customApi = loadScript(scriptFile, (code) => code.replace('const customizeProxies = [];', danglingInjection));
+    // 链式代理默认关闭
+    const out = customApi.main(fx.typicalSubscription());
+
+    h.assert(!groupByName(out['proxy-groups'], '链式中转'), '前置：关闭时不应生成链式中转组');
+
+    // 指向不存在的“链式中转”必须被清除，否则 mihomo 加载报 dialer-proxy not found
+    h.assert(
+      !out.proxies.find((x) => x.name.includes('手写中转'))['dialer-proxy'],
+      '指向链式中转的 dialer-proxy 应被清除',
+    );
+    // 指向其他自建节点的合法链式配置必须保留
+    h.assertEqual(
+      out.proxies.find((x) => x.name.includes('二级链路'))['dialer-proxy'],
+      '自建-落地',
+      '指向自建节点的 dialer-proxy 应保留',
+    );
+  });
+
+  h.test('启用链式代理：用户显式 dialer-proxy 不被覆盖，仅未指定的节点接入链式中转', () => {
+    const mixedInjection = `const customizeProxies = [
+      { name: '自建-落地', type: 'ss', server: 'c1.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x' },
+      { name: '自建-多级', type: 'ss', server: 'c2.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x', 'dialer-proxy': '自建-落地' },
+    ];`;
+    const customApi = loadScript(scriptFile, (code) => code.replace('const customizeProxies = [];', mixedInjection));
+    withOptions(customApi, { 链式代理: true }, () => {
+      const out = customApi.main(fx.typicalSubscription());
+
+      h.assertEqual(
+        out.proxies.find((x) => x.name.includes('落地'))['dialer-proxy'],
+        '链式中转',
+        '未指定 dialer-proxy 的节点应自动接入链式中转',
+      );
+      h.assertEqual(
+        out.proxies.find((x) => x.name.includes('多级'))['dialer-proxy'],
+        '自建-落地',
+        '用户显式配置的多级链路应被保留',
+      );
     });
   });
 

@@ -1044,6 +1044,9 @@ function buildRegionGroups(filteredProxies, customProxies) {
  * 处理自定义节点：标准化名称、与订阅节点重名时添加“自建-”前缀、内部去重，
  * 并构建“自建节点”策略组。
  * 自定义节点不参与订阅节点过滤，也不参与 hosts 改写及 DNS 域名处理。
+ *
+ * 链式代理：开启时把未显式指定 dialer-proxy 的自定义节点接到“链式中转”组。
+ * 用户自己写的 dialer-proxy 一律保留，不再无条件覆盖；关闭时清理指向“链式中转”的悬空引用。
  */
 function buildCustomizeGroups(filteredProxies, customizeList = customizeProxies) {
   const chainEnabled = ruleOptionsEnable.链式代理;
@@ -1068,9 +1071,19 @@ function buildCustomizeGroups(filteredProxies, customizeList = customizeProxies)
     usedNames.add(name);
 
     let customProxy = name === normalized.name ? normalized : { ...normalized, name };
-    if (chainEnabled && customProxy['dialer-proxy'] !== dialerProxyName) {
+
+    // 链式代理开启时，仅对未指定 dialer-proxy 的节点自动接入“链式中转”，
+    // 保留用户显式配置的多级链路（如自建 A 经自建 B 中转）
+    if (chainEnabled && !customProxy['dialer-proxy']) {
       customProxy = { ...customProxy, 'dialer-proxy': dialerProxyName };
     }
+
+    // 链式代理关闭时“链式中转”组不存在，必须清掉指向它的引用，否则是悬空引用
+    if (!chainEnabled && customProxy['dialer-proxy'] === dialerProxyName) {
+      customProxy = { ...customProxy };
+      delete customProxy['dialer-proxy'];
+    }
+
     customProxies.push(customProxy);
   }
 

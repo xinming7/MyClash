@@ -100,14 +100,30 @@ function runUnitTests(h, api, meta) {
   });
 
   h.section('单元测试 · buildCustomizeGroups（链式代理）');
-  h.test('链式代理启用：强制添加 dialer-proxy（已有值被覆盖）', () =>
+  h.test('链式代理启用：按需添加 dialer-proxy（已有值保留）', () => {
     withUnitOptions({ 链式代理: true }, () => {
-      for (const proxies of [custom('自建独享'), [{ ...mkCustomProxy('自建独享'), 'dialer-proxy': '旧中转' }]]) {
-        const r = api.buildCustomizeGroups([], proxies);
-        h.assertEqual(r.customProxies[0]['dialer-proxy'], '链式中转');
-      }
-    }),
-  );
+      // 未指定 dialer-proxy 的节点自动接入链式中转
+      const added = api.buildCustomizeGroups([], custom('自建独享'));
+      h.assertEqual(added.customProxies[0]['dialer-proxy'], '链式中转', '未指定时应自动接入链式中转');
+
+      // 用户显式配置的 dialer-proxy 必须保留，不能被无条件覆盖
+      const kept = api.buildCustomizeGroups([], [{ ...mkCustomProxy('自建独享'), 'dialer-proxy': '旧中转' }]);
+      h.assertEqual(kept.customProxies[0]['dialer-proxy'], '旧中转', '用户显式配置应被保留');
+    });
+  });
+  h.test('链式代理关闭：清除指向链式中转的悬空引用', () => {
+    withUnitOptions({ 链式代理: false }, () => {
+      const r = api.buildCustomizeGroups(
+        [],
+        [
+          { ...mkCustomProxy('自建独享'), 'dialer-proxy': '链式中转' },
+          { ...mkCustomProxy('自建-二级'), 'dialer-proxy': '自建-落地' },
+        ],
+      );
+      h.assert(!r.customProxies[0]['dialer-proxy'], '指向链式中转的引用应被清除');
+      h.assertEqual(r.customProxies[1]['dialer-proxy'], '自建-落地', '指向自建节点的引用应保留');
+    });
+  });
   h.test('链式代理启用：策略组名改为“链式落地”，节点名称保持不变', () =>
     withUnitOptions({ 链式代理: true }, () => {
       const r = api.buildCustomizeGroups([], custom('自建-日本-01'));
