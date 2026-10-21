@@ -1189,7 +1189,7 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
         'exclude-type': 'DIRECT',
         name: '⚡ CF前置',
         proxies: cfProxies,
-        icon: 'https://gh-proxy.org/https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/cloudflare-color.png',
+        icon: 'https://v6.gh-proxy.org/https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/cloudflare-color.png',
         hidden: false,
       });
       vgCfGroupNames.push('⚡ CF前置');
