@@ -21,7 +21,7 @@
 
 ## 本 Fork 的改动
 
-本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)。改动集中在全量版脚本 `Script/mihomoScript.js`；精简版脚本 `Script/Script.js` 已同步 `GitHub` 策略组与自定义规则集，但不含链式代理、VG 家宽等全量版独有功能。
+本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)。改动集中在全量版脚本 `Script/mihomoScript.js`；精简版脚本 `Script/Script.js` 已同步 `GitHub` 策略组、链式代理与自定义规则集，但不含 VG 家宽等全量版独有功能。
 
 - **新增 `GitHub` 分流策略组**：为 GitHub 域名单独分流，图标复用上游 GitHub 图标（全量版与精简版均已支持）
 - **同步上游增强**：零宽/不可见字符节点名匹配、公共 DNS 过滤项扩充（全量版与精简版均已同步）
@@ -33,6 +33,7 @@
 - **修复配置加载失败**：关闭 `GitHub` 开关时 `Microsoft` 组残留的 `github` 规则集引用、以及订阅仅含家宽/优选节点时基础组为空，此前都会让 mihomo 校验失败
 - **补全规则集下载直连域名**：`v6.gh-proxy.org`、`gh-proxy.org`、`static-file-global.353355.xyz` 加入前置直连，避免规则集拉取时走代理形成循环依赖
 - **链式代理行为修正**：链式代理只对未配置 `dialer-proxy` 的自定义节点生效，不再覆盖用户手写的多级链路；关闭时会清理悬空引用
+- **家宽节点并存两套语义**：上游的「家宽节点」组按 `家宽|住宅|原生IP|家庭宽带|ISP|RES|residential` 关键词归类；本 fork 的 `VG家宽` / `🏠 家宽自动` 只认 `🏠 XX-家宽-NN` 固定格式。`VG` 开启时家宽/优选节点不会重复进「家宽节点」与地区组（由 `VG家宽`、`⚡ CF前置` 承载）；关闭 `VG` 时这些节点会正常回落到「家宽节点」与地区组，不会消失（全量版）
 
 使用本 fork 的改动时，请导入以下脚本链接（配置文件仍可用上面上游的链接）：
 
@@ -130,6 +131,29 @@ https://raw.githubusercontent.com/AIsouler/MyClash/main/Config/mihomoConfig.yaml
 ```text
 https://raw.githubusercontent.com/AIsouler/MyClash/main/Config/mihomoConfigLite.yaml
 ```
+
+---
+
+## 上游同步工具
+
+本 fork 自带一批上游没有的特性（VG 家宽三组、链式代理、自定义规则集、倍率组默认关闭等）。同步上游时手工在冲突里保住这些特性很容易漏，因此提供了 `Tools/sync-upstream.js` 把「对比 → 注入 → 校验」固化下来。
+
+```bash
+# 1. 对比：上游领先哪些提交（标出哪些改了脚本）+ 本 fork 特性是否还在位
+node Tools/sync-upstream.js compare --fetch
+
+# 2. 注入：把本 fork 特性幂等地注入 Script/ 下两个脚本（先 dry-run 看改动）
+node Tools/sync-upstream.js apply --dry-run
+node Tools/sync-upstream.js apply
+
+# 3. 校验：只检查特性完整性，可用于 CI
+node Tools/sync-upstream.js verify
+```
+
+- 补丁是**行级锚点**匹配（忽略缩进），每个补丁带 marker，已注入过会自动跳过，重复执行安全
+- 锚点找不到或命中多处会**直接报错并打印锚点首行**，绝不静默跳过；单个文件有补丁失败则整文件不落盘
+- 特性清单在 `Tools/lib/feature-manifest.js`，新增 fork 特性请改这里，而不是直接手改上游代码
+- 注入完成后建议跑 `node Test/run-tests.js` 验证
 
 ---
 
