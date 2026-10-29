@@ -67,6 +67,27 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
     h.assertEqual(hkGroup.proxies.filter((x) => x === '🇭🇰 香港 A').length, 1, '地区组内不应出现重复节点');
   });
 
+  h.test('节点名含零宽字符：匹配期剥离后地区/过滤正常，且节点名不被改写', () => {
+    const zw = fx.withInvisibleChars;
+    const out = api.main(fx.invisibleCharsSubscription());
+    const n = proxyNames(out.proxies);
+
+    // 1. 节点名必须保持原样（不可见字符仍在），不做任何清洗改写
+    h.assert(n.includes(`🇭🇰 ${zw('HK 01')}`), 'HK 01 应补国旗并保留原名中的不可见字符');
+    h.assert(n.includes('🇸🇬 \u3164SG\uFFA0 03'), 'SG 03 应补国旗并保留谚文填充符');
+    h.assert(!n.some((x) => x === '🇭🇰 HK 01'), '不得输出被清洗过的名字（说明发生了改写）');
+
+    // 2. 匹配不受影响：地区识别、信息节点过滤、倍率判断均正常
+    h.assert(!n.some((x) => x.includes('官网')), '信息节点应被过滤');
+    h.assert(groupByName(out['proxy-groups'], '香港').proxies.includes(`🇭🇰 ${zw('HK 01')}`), '应归入香港地区组');
+    h.assert(groupByName(out['proxy-groups'], '新加坡').proxies.includes('🇸🇬 \u3164SG\uFFA0 03'), '应归入新加坡地区组');
+
+    // 3. dialer-proxy 引用照常同步（名字只被补了国旗，未发生清洗）
+    const us = out.proxies.find((x) => x.name === `🇺🇸 ${zw('US 04')}`);
+    h.assert(us, 'US 04 应存在');
+    h.assertEqual(us['dialer-proxy'], `🇭🇰 ${zw('HK 01')}`, 'dialer-proxy 应同步为补国旗后的名字');
+  });
+
   // ---------------- GLOBAL 策略组 ----------------
   h.section('集成测试 · GLOBAL 策略组');
   h.test('GLOBAL 聚合所有策略组', () => {
@@ -284,8 +305,8 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
       const groups = out['proxy-groups'];
       h.assertDeep(
         groups.map((g) => g.name),
-        ['GLOBAL', '默认代理', '直连'],
-        '极简模式策略组应仅保留 GLOBAL、默认代理和直连',
+        ['GLOBAL', '默认代理', '自动选择', '直连'],
+        '极简模式策略组应仅保留 GLOBAL、默认代理、自动选择和直连',
       );
       h.assert(!out.dns['fake-ip-filter'].includes('rule-set:googlefcm'), '不应注入 FCM fake-IP 规则');
       h.assert(!out.rules.some((rule) => /,(Google|AI|Telegram|Steam|AdBlock)$/.test(rule)), '不应生成分流规则');
@@ -419,6 +440,86 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
     withOptions(api, { 过滤非地区节点: false }, () => {
       const out = api.main(fx.minimalSubscription());
       h.assert(proxyNames(out.proxies).includes('官网公告'), '信息节点应被保留');
+    }),
+  );
+
+  // ---------------- 家宽节点 ----------------
+  h.section('集成测试 · 家宽节点');
+  h.test('家宽节点归类：生成家宽节点组，地区家宽节点仍归地区组', () => {
+    const out = api.main(fx.homeBroadbandSubscription());
+    const g = groupByName(out['proxy-groups'], '家宽节点');
+    h.assert(g, '应生成家宽节点组');
+    h.assertEqual(g.type, 'select', '家宽节点组应为 select 类型');
+    h.assert(g.proxies.includes('🇭🇰 香港 家宽 01'), '地区家宽节点应入家宽组');
+    h.assert(g.proxies.includes('家宽专线 03'), '无地区关键词的家宽节点应入家宽组');
+    h.assert(groupByName(out['proxy-groups'], '香港').proxies.includes('🇭🇰 香港 家宽 01'), '地区家宽节点仍归地区组');
+    h.assert(groupByName(out['proxy-groups'], '新加坡').proxies.includes('🇸🇬 新加坡 06'), '非家宽节点正常归地区组');
+    h.assert(
+      groupByName(out['proxy-groups'], '其他节点').proxies.includes('家宽专线 03'),
+      '无地区关键词的家宽节点仍入其他节点组（与倍率组行为一致）',
+    );
+    h.assert(groupByName(out['proxy-groups'], '默认代理').proxies.includes('家宽节点'), '默认代理应含家宽节点组');
+  });
+  h.test('生成家宽节点组=false → 不生成家宽节点组，节点仍按地区/其他归类', () =>
+    withOptions(api, { 生成家宽节点组: false }, () => {
+      const out = api.main(fx.homeBroadbandSubscription());
+      h.assert(!groupByName(out['proxy-groups'], '家宽节点'), '不应生成家宽节点组');
+      h.assert(!groupByName(out['proxy-groups'], '家宽节点-自动选择'), '不应生成家宽自动选择组');
+      h.assert(groupByName(out['proxy-groups'], '香港').proxies.includes('🇭🇰 香港 家宽 01'), '地区家宽节点仍归地区组');
+      h.assert(
+        groupByName(out['proxy-groups'], '其他节点').proxies.includes('家宽专线 03'),
+        '无地区关键词的家宽节点仍入其他节点组',
+      );
+      h.assert(!groupByName(out['proxy-groups'], '默认代理').proxies.includes('家宽节点'), '默认代理不应含家宽节点组');
+      h.assert(proxyNames(out.proxies).includes('🇭🇰 香港 家宽 01'), '家宽节点本身仍应保留');
+    }),
+  );
+  // VG（本 fork）与上游家宽节点组语义不同：VG 识别「🏠 XX-家宽-NN」固定格式并单独成组，
+  // 上游家宽组识别「家宽|住宅|原生IP|…」关键词。两者必须共存且不重复收录同一节点。
+  const vgHomeSubscription = () => ({
+    proxies: [
+      { name: '🏠 HK-家宽-01', type: 'ss', server: 'g.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x' },
+      { name: '🇯🇵 日本 住宅 IP', type: 'ss', server: 'h.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x' },
+    ],
+  });
+  h.test('VG 开启：VG 格式家宽节点归 VG家宽，不重复进家宽节点/地区组', () => {
+    if (!meta.full) return; // 精简版无 VG 功能
+    withOptions(api, { VG: true }, () => {
+      const out = api.main(vgHomeSubscription());
+      const vgGroup = groupByName(out['proxy-groups'], 'VG家宽');
+      const homeGroup = groupByName(out['proxy-groups'], '家宽节点');
+      h.assert(vgGroup, '应生成 VG家宽组');
+      h.assert(
+        vgGroup.proxies.some((n) => n.includes('HK-家宽-01')),
+        'VG 格式家宽节点应入 VG家宽组',
+      );
+      h.assert(
+        !homeGroup.proxies.some((n) => n.includes('HK-家宽-01')),
+        'VG 格式家宽节点不应重复进上游家宽节点组',
+      );
+      h.assert(homeGroup.proxies.includes('🇯🇵 日本 住宅 IP'), '上游语义的家宽节点仍应入家宽节点组');
+      // 直接列出该节点的组只应是 VG 相关组（GLOBAL/分流组引用的是组名，不会命中节点名）
+      const hosts = out['proxy-groups']
+        .filter((g) => (g.proxies || []).some((n) => n.includes('HK-家宽-01')))
+        .map((g) => g.name)
+        .sort();
+      h.assertDeep(hosts, ['VG家宽', '🏠 家宽自动']);
+    });
+  });
+  h.test('VG 关闭：VG 格式家宽节点不丢失，回落进家宽节点与地区组', () =>
+    withOptions(api, { VG: false }, () => {
+      const out = api.main(vgHomeSubscription());
+      const names = proxyNames(out.proxies);
+      h.assert(names.some((n) => n.includes('HK-家宽-01')), '关闭 VG 后节点本身不应消失');
+      h.assert(!groupByName(out['proxy-groups'], 'VG家宽'), '关闭 VG 后不应生成 VG家宽组');
+      h.assert(
+        groupByName(out['proxy-groups'], '家宽节点').proxies.some((n) => n.includes('HK-家宽-01')),
+        '关闭 VG 后应回落进上游家宽节点组',
+      );
+      h.assert(
+        groupByName(out['proxy-groups'], '香港').proxies.some((n) => n.includes('HK-家宽-01')),
+        '关闭 VG 后应回落进地区组',
+      );
     }),
   );
 

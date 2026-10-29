@@ -2,7 +2,7 @@
 
 /**
  * 纯函数单元测试，两个脚本共用。
- * 覆盖：matchDomainPattern / getMatchedRegions / normalizeProxyName / fixDialerProxy
+ * 覆盖：matchDomainPattern / getMatchedRegions / normalizeProxyName / fixDialerProxy / buildCustomizeGroups
  */
 function runUnitTests(h, api, meta) {
   /** 临时修改 ruleOptionsEnable 的若干选项，执行完成后恢复，避免污染后续用例 */
@@ -55,6 +55,50 @@ function runUnitTests(h, api, meta) {
     h.assert(n.includes('香港'));
   });
   h.test('无地区关键词 → 空结果', () => h.assertEqual(matched('随便测试名称').length, 0));
+  h.test('名称夹零宽字符仍能匹配地区（匹配期剥离）', () => {
+    h.assert(matched('H\u200BK\u200B \u200B0\u200B1').includes('香港'), 'H\\u200BK 应识别为香港');
+    h.assert(matched('J\u200BP\u200B \u200B0\u200B2').includes('日本'), 'J\\u200BP 应识别为日本');
+    h.assert(
+      matched('\u180EH\u2063K\u2066 \u206901\u2069').includes('香港'),
+      '蒙古文分隔符/隐形运算符/隔离符 均应忽略',
+    );
+    h.assert(matched('\u3164SG\uFFA0 03').includes('新加坡'), '谚文填充符应忽略');
+  });
+  h.test('夹零宽字符不影响倍率匹配', () => {
+    const n = matched('\u200B日本\u200B 0.3\u200Bx 流量');
+    h.assert(n.includes('低倍率节点'), '应识别为低倍率节点');
+    h.assert(n.includes('日本'));
+  });
+  h.test('家宽/住宅/原生IP/家庭宽带/ISP/RES → 家宽节点', () => {
+    for (const name of ['家宽 01', '住宅 IP', '原生IP 香港', '家庭宽带', '美国 ISP', 'HK-RES']) {
+      h.assert(matched(name).includes('家宽节点'), `${name} 应识别为家宽节点`);
+    }
+  });
+  h.test('家宽 + 地区 → 同时命中地区与家宽节点', () => {
+    h.assert(matched('🇭🇰 香港 家宽').includes('香港'));
+    h.assert(matched('🇭🇰 香港 家宽').includes('家宽节点'));
+  });
+  h.test('非家宽名称不误判', () => {
+    h.assert(!matched('美国 01').includes('家宽节点'));
+    h.assert(!matched('🇸🇬 新加坡 06').includes('家宽节点'));
+  });
+
+  h.section('单元测试 · toMatchableName（仅供匹配的不可见字符剥离）');
+  h.test('剥离零宽/不可见字符', () => h.assertEqual(api.toMatchableName('H\u200BK\u200B \u200B0\u200B1'), 'HK 01'));
+  h.test('剥离双向控制符 / 隐形运算符 / 隔离符', () =>
+    h.assertEqual(api.toMatchableName('H\u202AK\u2060\u2063\u2066J\u2069P\u00AD \u180E01'), 'HKJP 01'),
+  );
+  h.test('剥离谚文填充符与 BOM', () =>
+    h.assertEqual(api.toMatchableName('\uFEFF\u3164HK\uFFA0 \u115F0\u11601'), 'HK 01'),
+  );
+  h.test('保留 ZWJ / ZWNJ（emoji 组合与连字语义）', () =>
+    h.assertEqual(api.toMatchableName('H\u200CK\u200DJ'), 'H\u200CK\u200DJ'),
+  );
+  h.test('保留变体选择符（emoji 呈现语义）', () => h.assertEqual(api.toMatchableName('❤\uFE0F HK'), '❤\uFE0F HK'));
+  h.test('正常名称与中文国旗保持不变', () => {
+    h.assertEqual(api.toMatchableName('🇭🇰 香港 01'), '🇭🇰 香港 01');
+    h.assertEqual(api.toMatchableName('HK 01'), 'HK 01');
+  });
 
   h.section('单元测试 · normalizeProxyName（节点名标准化）');
   h.test('无国旗自动补地区国旗', () => h.assertEqual(api.normalizeProxyName({ name: 'HK 01' }).name, '🇭🇰 HK 01'));

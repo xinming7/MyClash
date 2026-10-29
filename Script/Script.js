@@ -34,6 +34,7 @@ const ruleOptionsEnable = {
   生成地区自动选择组: true, // 是否生成地区自动选择策略组
   隐藏地区手动选择组: false, // 是否隐藏地区手动选择策略组
   生成倍率组: true, // 是否生成低倍率/高倍率策略组
+  生成家宽节点组: true, // 是否生成家宽（住宅/原生 IP）节点策略组
   分流组添加所有节点: false, // 是否为分流策略组添加所有节点
   过滤低倍率节点: false, // 是否过滤低倍率节点
   过滤高倍率节点: false, // 是否过滤高倍率节点
@@ -41,7 +42,6 @@ const ruleOptionsEnable = {
   屏蔽国外QUIC: true, // 是否屏蔽国外QUIC流量
   代理IPV4优先: false, // 是否将订阅节点统一为 IPv4 优先（与“代理IPV6优先”同时开启时不生效）
   代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）
-  链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经“链式中转”策略组中转）
 };
 
 // 定义前置规则
@@ -63,11 +63,11 @@ const prefixRules = [
   // 国内直连
   'RULE-SET,geolocation-cn,直连',
   'RULE-SET,games_cn,直连', // 已包含 steam 下载域名
-  'RULE-SET,epicgames,直连',
   'RULE-SET,apple_cn,直连',
   'RULE-SET,microsoft_cn,直连',
   'DOMAIN,fsend.cn,直连',
   'DOMAIN,international-gfe.download.nvidia.com,直连',
+  'DOMAIN-SUFFIX,ctaiot.com,直连',
 ];
 
 // 此处添加自定义节点，填入下方[]内（可选，留空则不生成“自建节点”策略组）
@@ -193,8 +193,19 @@ const rateRegionDefinitions = [
   },
 ];
 
-// 全部策略组定义（地区 + 倍率），统一用于节点匹配与归类
-const allRegionDefinitions = [...regionDefinitions, ...rateRegionDefinitions];
+// 定义家宽（住宅/原生 IP）节点策略组
+const homeRegionName = '家宽节点';
+
+const homeRegionDefinitions = [
+  {
+    name: homeRegionName,
+    regex: /家宽|住宅|原生\s*IP|家庭宽带|\bISP\b|\bRES\b|residential/i,
+    icon: `${iconBaseUrl}Home.svg`,
+  },
+];
+
+// 全部策略组定义（地区 + 倍率 + 家宽），统一用于节点匹配与归类
+const allRegionDefinitions = [...regionDefinitions, ...rateRegionDefinitions, ...homeRegionDefinitions];
 
 // Rule Providers 通用配置
 const ruleProviderCommonDomain = {
@@ -231,12 +242,6 @@ const baseRuleProviders = {
     url: `${ruleSetBaseUrl}geosite/category-games@cn.mrs`,
     path: './ruleset/category-games@cn.mrs',
     'path-in-bundle': 'geo/geosite/category-games@cn.mrs',
-  },
-  epicgames: {
-    ...ruleProviderCommonDomain,
-    url: `${ruleSetBaseUrl}geosite/epicgames.mrs`,
-    path: './ruleset/epicgames.mrs',
-    'path-in-bundle': 'geo/geosite/epicgames.mrs',
   },
   apple_cn: {
     ...ruleProviderCommonDomain,
@@ -574,6 +579,7 @@ function filterAndNormalizeProxies(config) {
     if (type === 'direct' || type === 'reject' || type === 'rematch') return false;
 
     const matchableName = toMatchableName(proxy.name);
+
     if (lowRateRegex?.test(matchableName) || highRateRegex?.test(matchableName)) return false;
 
     if (!filterNonRegionProxiesEnabled) return true;
@@ -658,6 +664,7 @@ function createRegionGroup(name, icon, proxies) {
  */
 function buildRegionGroups(filteredProxies, customProxies) {
   const generateRateGroupEnabled = ruleOptionsEnable.生成倍率组;
+  const generateHomeGroupEnabled = ruleOptionsEnable.生成家宽节点组;
 
   const regionGroups = Object.fromEntries(allRegionDefinitions.map(({ name }) => [name, []]));
   const otherProxies = [];
@@ -676,7 +683,12 @@ function buildRegionGroups(filteredProxies, customProxies) {
   }
 
   const generatedRegionGroups = allRegionDefinitions
-    .filter((r) => regionGroups[r.name].length > 0 && (generateRateGroupEnabled || !rateRegionDefinitions.includes(r)))
+    .filter(
+      (r) =>
+        regionGroups[r.name].length > 0 &&
+        (generateRateGroupEnabled || !rateRegionDefinitions.includes(r)) &&
+        (generateHomeGroupEnabled || !homeRegionDefinitions.includes(r)),
+    )
     .flatMap((r) => createRegionGroup(r.name, r.icon, regionGroups[r.name]));
 
   if (otherProxies.length > 0) {
@@ -700,6 +712,7 @@ function buildCustomizeGroups(filteredProxies, customizeList = customizeProxies)
   const chainEnabled = ruleOptionsEnable.链式代理;
 
   if (!customizeList.length) {
+    // 链式代理开启却没有自定义节点属于误配置，直接报错而不是静默产出空链路
     if (chainEnabled) {
       throw new Error('启用失败，请在脚本中添加自定义节点后尝试');
     }
@@ -778,6 +791,7 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
   const baseGroupNames = baseGroups.filter((g) => ruleOptionsEnable[g.name]).map((g) => g.name);
   const customGroupNames = customGroup ? [customGroup.name] : [];
 
+  // 链式代理：自定义节点作落地时需要一个“链式中转”组承载中转节点
   const chainGroup =
     chainEnabled && customGroup
       ? {
@@ -789,14 +803,25 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
       : null;
 
   if (minimalModeEnabled) {
+    const autoSelectGroupEnabled = ruleOptionsEnable.自动选择;
+
+    const finalRuleProviders = { ...baseRuleProviders };
+    if (!blockForeignQuicEnabled) delete finalRuleProviders.cn_additional;
+
     const defaultGroup = {
       ...selectBaseOption,
       name: '默认代理',
-      proxies: allProxiesNames,
+      proxies: [...allProxiesNames, ...(autoSelectGroupEnabled ? ['自动选择'] : [])],
       icon: `${iconBaseUrl}Proxy.svg`,
     };
-    const finalRuleProviders = { ...baseRuleProviders };
-    if (!blockForeignQuicEnabled) delete finalRuleProviders.cn_additional;
+
+    const autoSelectGroup = {
+      ...urlTestBaseOption,
+      name: '自动选择',
+      proxies: allProxiesNames,
+      hidden: true,
+    };
+
     const directGroup = {
       ...selectBaseOption,
       name: '直连',
@@ -804,15 +829,23 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
       icon: `${iconBaseUrl}China.svg`,
       hidden: true,
     };
+
     const globalGroup = {
       ...selectBaseOption,
       name: 'GLOBAL',
-      proxies: ['默认代理', ...customGroupNames, ...(chainGroup ? [chainGroup.name] : []), '直连'],
+      proxies: [
+        '默认代理',
+        ...customGroupNames,
+        ...(chainGroup ? [chainGroup.name] : []),
+        ...(autoSelectGroupEnabled ? [autoSelectGroup.name] : []),
+        '直连',
+      ],
       icon: `${iconBaseUrl}Global.svg`,
     };
+
     return {
       globalGroup,
-      functionalGroups: [defaultGroup],
+      functionalGroups: [defaultGroup, ...(autoSelectGroupEnabled ? [autoSelectGroup] : [])],
       functionalRules: [],
       finalRuleProviders,
       chainGroup,
