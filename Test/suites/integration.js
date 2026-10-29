@@ -493,10 +493,7 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
         vgGroup.proxies.some((n) => n.includes('HK-家宽-01')),
         'VG 格式家宽节点应入 VG家宽组',
       );
-      h.assert(
-        !homeGroup.proxies.some((n) => n.includes('HK-家宽-01')),
-        'VG 格式家宽节点不应重复进上游家宽节点组',
-      );
+      h.assert(!homeGroup.proxies.some((n) => n.includes('HK-家宽-01')), 'VG 格式家宽节点不应重复进上游家宽节点组');
       h.assert(homeGroup.proxies.includes('🇯🇵 日本 住宅 IP'), '上游语义的家宽节点仍应入家宽节点组');
       // 直接列出该节点的组只应是 VG 相关组（GLOBAL/分流组引用的是组名，不会命中节点名）
       const hosts = out['proxy-groups']
@@ -510,7 +507,10 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
     withOptions(api, { VG: false }, () => {
       const out = api.main(vgHomeSubscription());
       const names = proxyNames(out.proxies);
-      h.assert(names.some((n) => n.includes('HK-家宽-01')), '关闭 VG 后节点本身不应消失');
+      h.assert(
+        names.some((n) => n.includes('HK-家宽-01')),
+        '关闭 VG 后节点本身不应消失',
+      );
       h.assert(!groupByName(out['proxy-groups'], 'VG家宽'), '关闭 VG 后不应生成 VG家宽组');
       h.assert(
         groupByName(out['proxy-groups'], '家宽节点').proxies.some((n) => n.includes('HK-家宽-01')),
