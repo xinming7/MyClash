@@ -23,10 +23,17 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const { applyFeaturesToFile, featureStatus, flavorOf, PatchError } = require('./lib/patch-engine');
+const {
+  applyFeaturesToContent,
+  applyFeaturesToFile,
+  featureStatus,
+  flavorOf,
+  PatchError,
+} = require('./lib/patch-engine');
 const { FEATURES } = require('./lib/feature-manifest');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -311,6 +318,104 @@ function cmdVerify(opts) {
   return 0;
 }
 
+// ---------- replay ----------
+
+/**
+ * git diff --no-index 在「有差异」时退出码为 1，属于正常结果而非错误。
+ * 直接用 try/catch 判断会把输出一起丢掉（表现为「有漂移但 0 行差异」），必须单独处理。
+ */
+function diffNoIndex(a, b) {
+  try {
+    return { same: true, text: git(['diff', '--no-index', '--', a, b]) };
+  } catch (err) {
+    const text = (err.stdout || '').toString();
+    if (err.status === 1) return { same: false, text };
+    throw err;
+  }
+}
+
+/**
+ * 回放验证：取上游原版内容 → 内存中注入本地特性 → 与工作区文件逐字节比对。
+ * 0 差异说明「当前脚本 == 上游原版 + 清单声明的特性」，即手工解冲突没有引入额外漂移。
+ * 这是自动同步能否走「重建」路径（丢弃本地脚本、用上游原版重新注入）的判定依据。
+ */
+function cmdReplay(opts) {
+  const ref = opts.ref || 'upstream/main';
+  const files = opts.file ? [String(opts.file)] : SCRIPT_FILES;
+  const asJson = Boolean(opts.json);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'myclash-replay-'));
+  const results = [];
+  let drift = 0;
+
+  for (const file of files) {
+    const abs = resolveFileArg(file);
+    let upstreamContent;
+    try {
+      upstreamContent = git(['show', `${ref}:${file}`]);
+    } catch {
+      results.push({ file, status: 'missing-in-ref' });
+      if (!asJson) console.log(c('yellow', `~ ${file}：${ref} 中不存在该文件，跳过`));
+      continue;
+    }
+
+    const flavor = flavorOf(abs);
+    const res = applyFeaturesToContent(upstreamContent, flavor, FEATURES, { keepGoing: false });
+
+    if (res.failed > 0) {
+      const bad = res.features.find((f) => !f.ok);
+      drift += 1;
+      results.push({
+        file,
+        flavor,
+        status: 'failed',
+        failedPatches: bad ? bad.patches.filter((p) => p.status === 'failed') : [],
+      });
+      if (!asJson) {
+        console.log(c('red', `✘ ${file}：注入失败 ${res.failed} 处`));
+        for (const p of bad ? bad.patches.filter((x) => x.status === 'failed') : []) {
+          console.log(c('red', `    ${p.id}：${p.detail}`));
+        }
+      }
+      continue;
+    }
+
+    const tmpFile = path.join(tmpDir, `replay-${path.basename(file)}`);
+    fs.writeFileSync(tmpFile, res.content, 'utf8');
+    const d = diffNoIndex(tmpFile, abs);
+
+    if (d.same) {
+      results.push({ file, flavor, status: 'identical', applied: res.applied, skipped: res.skipped });
+      if (!asJson) {
+        console.log(
+          c('green', `✔ ${file}：回放结果与工作区逐字节一致（注入 ${res.applied} 处、跳过 ${res.skipped} 处）`),
+        );
+      }
+    } else {
+      const body = d.text.split('\n');
+      const changedLines = body.filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l)).length;
+      drift += 1;
+      results.push({ file, flavor, status: 'drift', changedLines, diff: body.slice(0, 80) });
+      if (!asJson) {
+        console.log(c('red', `✘ ${file}：回放结果与工作区不一致（差异 ${changedLines} 行）`));
+        console.log(c('dim', body.slice(0, 40).join('\n')));
+        console.log(c('dim', `    （回放结果保留在 ${tmpFile}，可自行 diff）`));
+      }
+    }
+  }
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+
+  if (asJson) {
+    console.log(JSON.stringify({ ref, ok: drift === 0, drift, results }, null, 2));
+  } else if (drift === 0) {
+    console.log(c('green', '\n回放通过：目标文件 == 上游原版 + 清单声明的特性，无额外漂移。'));
+  } else {
+    console.log(c('red', `\n回放发现 ${drift} 个文件存在未声明的漂移。`));
+    console.log(c('dim', '  两种可能：① 有本地特性还没写进清单；② 上游改动尚未合并进本地。'));
+  }
+  return drift === 0 ? 0 : 1;
+}
+
 // ---------- help ----------
 
 function usage() {
@@ -323,19 +428,23 @@ function usage() {
   compare     对比本地与上游分叉情况，并检查 fork 特性是否在位
   apply       把 fork 特性幂等注入到 Script/ 下的脚本
   verify      仅检查 fork 特性是否完整（可用于 CI）
+  replay      上游原版 + 注入 与 当前脚本 逐字节比对（判断能否走「重建」路径）
 
 选项：
   --fetch             compare 前先 git fetch upstream
   --base <ref>        compare 的对比基准（默认 upstream/main）
+  --ref <ref>         replay 的基准版本（默认 upstream/main）
   --file <path>       只处理指定脚本（默认两个都处理）
   --only <ids>        apply 只处理指定特性，逗号分隔
   --dry-run           apply 只报告不写入
+  --json              replay 输出机器可读 JSON（供 CI 解析）
 
 示例：
   node Tools/sync-upstream.js compare --fetch
   node Tools/sync-upstream.js apply --dry-run
   node Tools/sync-upstream.js apply --only vg-groups
   node Tools/sync-upstream.js verify
+  node Tools/sync-upstream.js replay --json
 `);
 }
 
@@ -351,6 +460,8 @@ function main(argv) {
         return cmdApply(opts);
       case 'verify':
         return cmdVerify(opts);
+      case 'replay':
+        return cmdReplay(opts);
       case 'help':
       case undefined:
         usage();

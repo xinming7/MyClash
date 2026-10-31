@@ -2,7 +2,7 @@
 
 ## 这是什么
 
-面向 mihomo 内核客户端的**覆写脚本 + 静态配置**仓库，是 `AIsouler/MyClash` 的 fork（remote 为 https://github.com/xinming7/MyClash.git，分支 `main`，工作区干净）。它在配置加载期把机场订阅重写成策略组 + 路由，不预生成任何产物；分发靠客户端直接导入 raw URL。入口文件：`Script/mihomoScript.js`（完整版，1929 行）与 `Script/Script.js`（lite 版，1515 行）。同步上游用 `Tools/sync-upstream.js`（见下文）。
+面向 mihomo 内核客户端的**覆写脚本 + 静态配置**仓库，是 `AIsouler/MyClash` 的 fork（remote 为 https://github.com/xinming7/MyClash.git，分支 `main`，工作区干净）。它在配置加载期把机场订阅重写成策略组 + 路由，不预生成任何产物；分发靠客户端直接导入 raw URL。入口文件：`Script/mihomoScript.js`（完整版，1959 行）与 `Script/Script.js`（lite 版，1545 行）。同步上游用 `Tools/sync-upstream.js`（见下文）。
 
 ## 技术栈
 
@@ -21,6 +21,7 @@
 - 同步上游：`node Tools/sync-upstream.js compare --fetch`（差异报告 + 特性在位检查）
   - 注入特性：`node Tools/sync-upstream.js apply --dry-run` 确认后去掉 `--dry-run`
   - 只查不改：`node Tools/sync-upstream.js verify`（适合放进 CI）
+  - 回放校验：`node Tools/sync-upstream.js replay [--ref upstream/main] [--json]`，确认「脚本 == 上游 + 清单」，非 0 退出即有未声明漂移
   - 首次需配 upstream：`git remote add upstream https://github.com/AIsouler/MyClash.git`
 - 配置校验：`/opt/homebrew/bin/mihomo -d <tmpdir> -f <cfg.yaml> -t`（本机 mihomo 1.19.33）
 - 构建：（无）
@@ -42,10 +43,30 @@
 
 只有一个 workflow：`.github/workflows/format_and_test.yaml`。
 
-- 触发：`push`（限定 `main` + 路径 `Script/*`、`Test/**`、`**/*.yaml`、`**/*.yml`、`.prettierrc*`）、同样路径的 `pull_request`、`workflow_dispatch`。**没有 cron，也没有 release/artifact**，合并到 `main` 不会自动发版。
+- 触发：`push`（限定 `main` + 路径 `Script/*`、`Test/**`、`Tools/**`、`**/*.yaml`、`**/*.yml`、`.prettierrc*`）、同样路径的 `pull_request`、`workflow_dispatch`。**没有 cron，也没有 release/artifact**，合并到 `main` 不会自动发版。
 - job `format`（PR 时跳过，`contents: write`）：装 prettier 后对受控 `.js/.yml/.yaml` 跑 `prettier --write`，有 diff 就以 `github-actions[bot]` 提交 `chore: auto format` 并 push。
-- job `test`（`needs: format`）：`npm --prefix Test install` 后跑 `node Test/run-tests.js`。
+- job `test`（`needs: format`）：`npm --prefix Test install` → `node Tools/sync-upstream.js verify` → `node Test/run-tests.js`。**verify 放在测试前**，因为它秒级返回，且是唯一能发现「特性被上游删掉但测试仍全绿」的检查。
 - 产物：无。dist 就是 raw URL 本身；图标与规则源走 jsDelivr（`cdn.jsdmirror.com`），改动必须 commit+push 后客户端才拿得到。
+
+## 自动同步上游
+
+`.github/workflows/upstream-sync.yaml` 每天 20:00 UTC（北京时间次日 04:00）检查上游，也支持手动 `workflow_dispatch`（可指定 `ref`，可勾 `dry_run` 只验证不推送）。
+
+**核心思路：两个脚本是「上游原版 + 特性清单」的派生产物，不是合并对象。** 因此冲突时不做人工式合并，而是取上游侧再重新注入，正确性由 `replay` 逐字节保证。
+
+流程：预检（`replay` 基准 = 上次已合并的上游提交）→ 建临时分支 `sync/upstream-<时间戳>` → 合并 → 注入 → verify → 幂等二次 apply → `replay --ref upstream` → 跑测试 → 全绿才 merge 到 main 并 push。
+
+三级降级：
+
+| 级别 | 条件 | 动作 |
+| --- | --- | --- |
+| L0 直合 | `git merge` 无冲突 | 直接注入 + 五项校验 |
+| L1 重建 | 冲突**只在** `Script/mihomoScript.js`、`Script/Script.js` | `merge --abort` → `git merge -X theirs` → `apply` 重新注入。**前置条件：预检 `replay` 通过**（否则说明 main 有未声明漂移，重建会丢代码，此时直接失败转人工） |
+| L2 人工 | 冲突含其他文件，或任一补丁 anchor 失败 | 中止，main 不动，开 issue |
+
+**失败与回滚**：全程在临时分支，未通过校验不碰 main，失败即丢弃分支 —— 天然回滚，无需 reset。已合并后发现问题的回退方式：`git revert -m 1 <merge-sha>`。已知良好版本看 tag（`v1.2.0` 起）。失败会开 issue（label `upstream-sync-failed`，已有 open issue 则追加评论），正文含运行链接、排查顺序与回滚命令。
+
+**注意**：分发走 raw URL 的 `@main`，推送 main 等于立即发布给所有客户端。所以校验顺序不可省；首次上线建议先用 `dry_run` 观察几轮。改 workflow 时别动 `concurrency: upstream-sync`，并发的两次同步会在 push 时互相打断。
 
 ## 改这个项目时的坑
 

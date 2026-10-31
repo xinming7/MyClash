@@ -1,0 +1,243 @@
+name: upstream-sync
+
+# 自动同步上游，并用 Tools/sync-upstream.js 重新注入本 fork 的特性。
+#
+# 设计要点：
+#  1. 全程在临时分支上操作，未通过全部校验前不碰 main —— 失败即丢弃分支，天然回滚。
+#  2. 两个脚本被视为「上游原版 + 特性清单」的派生产物。冲突时不做人工式合并，
+#     而是取上游侧后重新注入（L1 重建）；重建结果由 replay 逐字节校验。
+#  3. 任一环节失败都开 issue 告警，并让 job 失败（GitHub 也会发邮件）。
+#
+# 注意：分发走 raw.githubusercontent.com/.../main/...，推送 main 等于立刻发布给所有客户端，
+# 因此校验顺序不可省。需要观察期时用 workflow_dispatch 勾选 dry_run。
+
+on:
+  schedule:
+    # 每天 20:00 UTC = 次日 04:00 (UTC+8)
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '上游引用'
+        required: false
+        default: 'upstream/main'
+      dry_run:
+        description: '只验证不推送（观察模式）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: https://github.com/AIsouler/MyClash.git
+  UPSTREAM_REF: ${{ inputs.ref || 'upstream/main' }}
+  DRY_RUN: ${{ inputs.dry_run || false }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: 配置上游并检查是否有更新
+        id: gate
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream "$UPSTREAM_REPO" 2>/dev/null || git remote set-url upstream "$UPSTREAM_REPO"
+          git fetch upstream --prune --tags
+
+          AHEAD=$(git rev-list --count HEAD.."$UPSTREAM_REF")
+          echo "上游领先 $AHEAD 个提交"
+          if [ "$AHEAD" -eq 0 ]; then
+            echo "has_update=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_update=1" >> "$GITHUB_OUTPUT"
+            git log --oneline "HEAD..$UPSTREAM_REF" | sed 's/^/  /'
+          fi
+
+      - name: 预检 · main 是否与「上游 + 清单」一致
+        if: steps.gate.outputs.has_update == '1'
+        run: |
+          # 用上次已合并的上游提交做基准。返回非 0 说明 main 存在未写进清单的改动，
+          # 此时禁止走 L1 重建路径（否则会丢代码），但 L0 直合仍然可以尝试。
+          BASE=$(git merge-base HEAD "$UPSTREAM_REF")
+          echo "基准提交：$BASE"
+          if node Tools/sync-upstream.js replay --ref "$BASE"; then
+            echo "replay_ok=1" >> "$GITHUB_ENV"
+          else
+            echo "replay_ok=0" >> "$GITHUB_ENV"
+            echo "::warning::main 存在未声明的漂移，本次禁用 L1 重建路径"
+          fi
+
+      - name: 创建同步分支并合并
+        id: merge
+        if: steps.gate.outputs.has_update == '1'
+        run: |
+          BRANCH="sync/upstream-$(date -u +%Y%m%d-%H%M)"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          git checkout -b "$BRANCH"
+
+          if git merge "$UPSTREAM_REF" --no-edit; then
+            echo "result=clean" >> "$GITHUB_OUTPUT"
+            echo "合并无冲突"
+          else
+            echo "result=conflict" >> "$GITHUB_OUTPUT"
+            echo "冲突文件："
+            git diff --name-only --diff-filter=U | sed 's/^/  /'
+          fi
+
+      - name: L1 重建 · 冲突落在注入目标内则取上游侧后重新注入
+        if: steps.merge.outputs.result == 'conflict'
+        run: |
+          CONFLICTS=$(git diff --name-only --diff-filter=U)
+          # 只允许在两个注入目标脚本上自动重建；其余文件的冲突一律人工处理
+          for f in $CONFLICTS; do
+            case "$f" in
+              Script/mihomoScript.js | Script/Script.js) ;;
+              *)
+                echo "::error file=$f::冲突包含非注入目标文件，需人工处理"
+                git merge --abort
+                exit 1
+                ;;
+            esac
+          done
+
+          if [ "${replay_ok:-0}" != "1" ]; then
+            echo "::error::main 存在未声明漂移，禁止重建（会丢代码），请人工解冲突"
+            git merge --abort
+            exit 1
+          fi
+
+          echo "冲突全部位于注入目标，改用「上游侧 + 重新注入」重建"
+          git merge --abort
+          git merge "$UPSTREAM_REF" -X theirs --no-edit
+          node Tools/sync-upstream.js apply
+
+      - name: 注入特性（直合路径）
+        if: steps.merge.outputs.result == 'clean'
+        run: node Tools/sync-upstream.js apply
+
+      - name: 校验 · 特性完整性
+        if: steps.gate.outputs.has_update == '1'
+        run: node Tools/sync-upstream.js verify
+
+      - name: 校验 · 注入幂等
+        if: steps.gate.outputs.has_update == '1'
+        run: |
+          OUT=$(node Tools/sync-upstream.js apply)
+          echo "$OUT"
+          if ! echo "$OUT" | grep -q "注入 0 处"; then
+            echo "::error::二次注入产生了改动，说明存在 marker 失效的补丁"
+            exit 1
+          fi
+
+      - name: 校验 · 回放（脚本 == 上游 + 清单）
+        if: steps.gate.outputs.has_update == '1'
+        run: node Tools/sync-upstream.js replay --ref "$UPSTREAM_REF"
+
+      - name: 校验 · 测试套件
+        if: steps.gate.outputs.has_update == '1'
+        run: |
+          npm --prefix Test install
+          node Test/run-tests.js
+
+      - name: 提交并推送 main
+        if: steps.gate.outputs.has_update == '1'
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "无待提交改动"
+          else
+            git commit -m "chore: 同步上游并重放 fork 特性"
+          fi
+
+          git checkout main
+          git merge --no-ff "${{ steps.merge.outputs.branch }}" -m "Merge ${{ steps.merge.outputs.branch }}: 同步上游并重放 fork 特性（verify+幂等+replay+测试全绿）"
+
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "::notice::dry_run 已开启，跳过推送。待推送内容："
+            git log --oneline origin/main..main
+            exit 0
+          fi
+          git push origin main
+
+      - name: 失败告警
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create upstream-sync-failed --color B60205 --description "自动同步上游失败" 2>/dev/null || true
+
+          BODY=$(cat <<EOF
+          自动同步上游失败，main 未被修改（全程在临时分支操作，已丢弃）。
+
+          - 运行记录：$RUN_URL
+          - 上游：\`${{ env.UPSTREAM_REF }}\`
+          - 触发：${{ github.event_name }}
+
+          ## 排查顺序
+
+          1. 看运行记录里第一个红色的 step。
+          2. 若是 **锚点未找到 / 锚点不唯一**：上游改动了补丁锚点所指的代码。
+             报错会打印锚点首行，去上游对应位置取新原文，更新 \`Tools/lib/feature-manifest.js\`。
+          3. 若是 **特性校验失败**：上游删掉了某段被依赖的代码（声明丢失）。
+             用 \`git log -S'符号名' --oneline ${{ env.UPSTREAM_REF }}\` 确认，再补回。
+          4. 若是 **测试失败**：多为上游行为变更与本地特性冲突，本地复现后用
+             \`node Tools/sync-upstream.js apply\` 重放。
+
+          ## 回滚
+
+          本次同步未推送，main 无需回滚。若需回退已合并的历史同步：
+
+          \`\`\`bash
+          git revert -m 1 <merge-sha>   # 撤销某次同步合并
+          git push origin main
+          \`\`\`
+
+          已知良好版本见 tag：\`git tag -l 'v*'\`。
+          EOF
+          )
+
+          EXISTING=$(gh issue list --label upstream-sync-failed --state open --json number --jq '.[0].number' || true)
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+            echo "已追加到既有 issue #$EXISTING"
+          else
+            gh issue create --title "upstream-sync 失败：$(date -u +%Y-%m-%d)" --body "$BODY" --label upstream-sync-failed
+          fi
+
+      - name: 结果摘要
+        if: always()
+        run: |
+          {
+            echo "### upstream-sync"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 上游引用 | \`${UPSTREAM_REF}\` |"
+            echo "| 有新提交 | ${HAS_UPDATE:-unknown} |"
+            echo "| 合并结果 | ${MERGE_RESULT:-未执行} |"
+            echo "| 观察模式 | ${DRY_RUN} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          HAS_UPDATE: ${{ steps.gate.outputs.has_update }}
+          MERGE_RESULT: ${{ steps.merge.outputs.result }}

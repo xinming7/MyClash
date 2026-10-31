@@ -148,12 +148,24 @@ node Tools/sync-upstream.js apply
 
 # 3. 校验：只检查特性完整性，可用于 CI
 node Tools/sync-upstream.js verify
+
+# 4. 回放：确认「当前脚本 == 上游原版 + 特性清单」，无未声明漂移
+node Tools/sync-upstream.js replay
 ```
 
 - 补丁是**行级锚点**匹配（忽略缩进），每个补丁带 marker，已注入过会自动跳过，重复执行安全
 - 锚点找不到或命中多处会**直接报错并打印锚点首行**，绝不静默跳过；单个文件有补丁失败则整文件不落盘
 - 特性清单在 `Tools/lib/feature-manifest.js`，新增 fork 特性请改这里，而不是直接手改上游代码
 - 注入完成后建议跑 `node Test/run-tests.js` 验证
+
+### 自动同步
+
+仓库已配置 `.github/workflows/upstream-sync.yaml`：每天北京时间 04:00 检查上游，也可在 Actions 页手动触发（支持 `ref` 与 `dry_run`）。
+
+因为 `replay` 能证明两个脚本等于「上游原版 + 特性清单」，脚本被当作**派生产物**而非合并对象：遇到冲突时不做人工式合并，而是取上游侧后重新注入，正确性由 `replay` 逐字节保证。流程全程在临时分支，五项校验（verify / 幂等 / replay / 测试）未全部通过不会推送 `main`；失败会开 issue 附排查顺序与回滚命令，`main` 保持原样。
+
+> 分发走 raw URL 的 `@main`，推送即发布。首次使用建议先勾 `dry_run` 观察一轮。
+
 
 ---
 

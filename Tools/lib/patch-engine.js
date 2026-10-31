@@ -126,15 +126,14 @@ function featureStatus(lines, feature, flavor) {
 }
 
 /**
- * 处理单个文件：应用全部特征。
- * @returns {{file, flavor, features:[{id,title,ok,patches:[{id,status,detail}]}], applied:number, skipped:number, failed:number, content?:string}}
+ * 对一段文本应用全部特性（不落盘）。replay 用它把「上游原版」在内存里注入后比对，
+ * 避免为了验证而在工作区里来回改文件。
+ * @returns {{features:[{id,title,ok,patches:[{id,status,detail}]}], applied:number, skipped:number, failed:number, content?:string}}
  */
-function applyFeaturesToFile(filePath, features, options = {}) {
-  const flavor = flavorOf(filePath);
-  const original = fs.readFileSync(filePath, 'utf8');
-  const lines = original.split('\n');
+function applyFeaturesToContent(content, flavor, features, options = {}) {
+  const lines = content.split('\n');
 
-  const report = { file: filePath, flavor, features: [], applied: 0, skipped: 0, failed: 0 };
+  const report = { features: [], applied: 0, skipped: 0, failed: 0 };
   let failed = false;
 
   for (const feature of features) {
@@ -164,4 +163,24 @@ function applyFeaturesToFile(filePath, features, options = {}) {
   return report;
 }
 
-module.exports = { PatchError, flavorOf, applyPatch, applyFeaturesToFile, featureStatus, findAll };
+/**
+ * 处理单个文件：应用全部特征。
+ * content 只有全部补丁成功时才存在——调用方据此决定是否写盘（原子性）。
+ * @returns {{file, flavor, features, applied, skipped, failed, content?:string}}
+ */
+function applyFeaturesToFile(filePath, features, options = {}) {
+  const flavor = flavorOf(filePath);
+  const original = fs.readFileSync(filePath, 'utf8');
+  const report = applyFeaturesToContent(original, flavor, features, options);
+  return { file: filePath, flavor, ...report };
+}
+
+module.exports = {
+  PatchError,
+  flavorOf,
+  applyPatch,
+  applyFeaturesToContent,
+  applyFeaturesToFile,
+  featureStatus,
+  findAll,
+};

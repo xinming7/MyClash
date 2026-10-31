@@ -6,6 +6,7 @@ on:
     paths:
       - 'Script/*'
       - 'Test/**'
+      - 'Tools/**'
       - '**/*.yaml'
       - '**/*.yml'
       - '.prettierrc*'
@@ -13,6 +14,7 @@ on:
     paths:
       - 'Script/*'
       - 'Test/**'
+      - 'Tools/**'
       - '**/*.yaml'
       - '**/*.yml'
       - '.prettierrc*'
@@ -80,6 +82,11 @@ jobs:
 
       - name: install dependencies
         run: npm --prefix Test install
+
+      # fork 特性是否完整：上游删掉代码导致特性丢失时，测试可能仍然全绿（默认值恰好相同），
+      # 这一步是唯一能提前发现「隐性回归」的检查。
+      - name: verify fork features
+        run: node Tools/sync-upstream.js verify
 
       - name: run tests
         run: node Test/run-tests.js
