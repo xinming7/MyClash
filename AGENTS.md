@@ -24,6 +24,8 @@
   - 回放校验：`node Tools/sync-upstream.js replay [--ref upstream/main] [--json]`，确认「脚本 == 上游 + 清单」，非 0 退出即有未声明漂移
   - 首次需配 upstream：`git remote add upstream https://github.com/AIsouler/MyClash.git`
 - 配置校验：`/opt/homebrew/bin/mihomo -d <tmpdir> -f <cfg.yaml> -t`（本机 mihomo 1.19.33）
+  - 生成待校验产物：`node Tools/gen-config.js Script/mihomoScript.js /tmp/full.json '{"VG":true}'` 与 `node Tools/gen-config.js Script/Script.js /tmp/lite.json`
+  - 产物是 JSON 但可直接喂 mihomo（JSON ⊂ YAML）；生成器遇空策略组即非 0 退出
 - 构建：（无）
 - 发布/部署：（无构建、无发版）客户端直接导入 raw URL：
   - `https://raw.githubusercontent.com/AIsouler/MyClash/main/Script/mihomoScript.js`
@@ -41,7 +43,7 @@
 
 ## 部署与 CI
 
-只有一个 workflow：`.github/workflows/format_and_test.yaml`。
+两个 workflow：`.github/workflows/format_and_test.yaml`（校验）与 `.github/workflows/upstream-sync.yaml`（自动同步上游，见下节）。
 
 - 触发：`push`（限定 `main` + 路径 `Script/*`、`Test/**`、`Tools/**`、`**/*.yaml`、`**/*.yml`、`.prettierrc*`）、同样路径的 `pull_request`、`workflow_dispatch`。**没有 cron，也没有 release/artifact**，合并到 `main` 不会自动发版。
 - job `format`（PR 时跳过，`contents: write`）：装 prettier 后对受控 `.js/.yml/.yaml` 跑 `prettier --write`，有 diff 就以 `github-actions[bot]` 提交 `chore: auto format` 并 push。
@@ -54,7 +56,9 @@
 
 **核心思路：两个脚本是「上游原版 + 特性清单」的派生产物，不是合并对象。** 因此冲突时不做人工式合并，而是取上游侧再重新注入，正确性由 `replay` 逐字节保证。
 
-流程：预检（`replay` 基准 = 上次已合并的上游提交）→ 建临时分支 `sync/upstream-<时间戳>` → 合并 → 注入 → verify → 幂等二次 apply → `replay --ref upstream` → 跑测试 → 全绿才 merge 到 main 并 push。
+流程：预检（`replay` 基准 = 上次已合并的上游提交）→ 建临时分支 `sync/upstream-<时间戳>` → 合并 → 注入 → verify → 幂等二次 apply → `replay --ref upstream` → 跑测试 → **内核校验四份配置** → 全绿才 merge 到 main 并 push。
+
+内核校验用 `Tools/gen-config.js` 生成两版产物（全量开 `VG`、精简默认），连同两个静态 YAML 一起交给 mihomo `-t`。产物直接输出 JSON —— JSON 是 YAML 1.2 子集，mihomo 可直接解析，所以不需要引入 YAML 依赖。内核版本固定 `1.19.33` 并缓存。这一步补的是「单元测试全绿但配置非法」的盲区：测试验的是逻辑，验不了内核认不认。
 
 三级降级：
 
@@ -64,7 +68,11 @@
 | L1 重建 | 冲突**只在** `Script/mihomoScript.js`、`Script/Script.js` | `merge --abort` → `git merge -X theirs` → `apply` 重新注入。**前置条件：预检 `replay` 通过**（否则说明 main 有未声明漂移，重建会丢代码，此时直接失败转人工） |
 | L2 人工 | 冲突含其他文件，或任一补丁 anchor 失败 | 中止，main 不动，开 issue |
 
-**失败与回滚**：全程在临时分支，未通过校验不碰 main，失败即丢弃分支 —— 天然回滚，无需 reset。已合并后发现问题的回退方式：`git revert -m 1 <merge-sha>`。已知良好版本看 tag（`v1.2.0` 起）。失败会开 issue（label `upstream-sync-failed`，已有 open issue 则追加评论），正文含运行链接、排查顺序与回滚命令。
+**失败与回滚**：全程在临时分支，未通过校验不碰 main，失败即丢弃分支 —— 天然回滚，无需 reset。已合并后发现问题的回退方式：`git revert -m 1 <merge-sha>`。已知良好版本看 tag（`v1.2.0` 起）。
+
+**告警有三路**：① 开 issue（label `upstream-sync-failed`，已有 open issue 则追加评论），正文含运行链接、排查顺序与回滚命令；② Telegram 推送（需 secrets `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`，未配置时静默跳过）；③ GitHub 运行失败邮件。任一通道自身失败只打 warning，不会盖掉原始错误。
+
+**推送前会对齐远程**：校验期间若有其他 workflow（如 `format_and_test` 的自动格式化）或人工提交推进了 main，直接 push 会因非快进失败。workflow 改为失败后 `fetch` + `merge` 再推，最多 3 次，且对齐后**重跑** verify / replay / 测试，避免推出没验过的组合。
 
 **注意**：分发走 raw URL 的 `@main`，推送 main 等于立即发布给所有客户端。所以校验顺序不可省；首次上线建议先用 `dry_run` 观察几轮。改 workflow 时别动 `concurrency: upstream-sync`，并发的两次同步会在 push 时互相打断。
 
@@ -76,6 +84,8 @@
 - **规则集下载域名必须走前置直连**：`prefixRules`（`Script/mihomoScript.js:68`）开头的 `DOMAIN,...,直连` 不是可有可无的优化，是防循环依赖的必需品。provider 下载时要走规则匹配，域名不在直连名单里就会命中 `MATCH,漏网之鱼` 走代理；节点不可用时所有规则集全部拉取失败（实测日志：`[TCP] dial 漏网之鱼 (match Match/) mihomo --> v6.gh-proxy.org:443 error: ... i/o timeout`）。当前已覆盖 `cdn.jsdmirror.com`、`v6.gh-proxy.org`、`gh-proxy.org`、`static-file-global.353355.xyz`（`Script/mihomoScript.js:72-74`）。**新增任何非 jsDelivr 的规则集源，必须同时把域名加进这个名单**，否则只在节点全挂时才暴露，极难排查。
 - **配置校验会被两件事打挂，`empty-fallback` 兜不住**：mihomo `-t` 阶段会拒绝 ①`rules` 里引用了未注册的 rule-provider（删 provider 时必须连规则一起删），②`select`/`url-test`/`load-balance` 组 `proxies` 为空数组（`empty-fallback: 'REJECT'` 只在运行时生效）。第 ① 条典型踩法：`GitHub` 开关关掉后 provider 不注册，但 Microsoft 组曾被误留在规则里（`Script/mihomoScript.js:496` 已修）。第 ② 条典型触发：VG 开启且订阅节点全部命中家宽/优选正则（`Script/mihomoScript.js:1255-1257` 的空组回退兜底）。**验证方式**：`/opt/homebrew/bin/mihomo -d <tmpdir> -f <cfg.yaml> -t`。
 - **同步上游时不能只 diff 一个文件**：上游经常一个提交同时改 `Script/mihomoScript.js`、`Script/Script.js`、`Config/mihomoConfig.yaml`、`Config/mihomoConfigLite.yaml`。2026-10 就漏过一次：上游 `badd718b`「显式定义规则集下载域名规则，避免出现鸡蛋问题」四个文件各 +3 行（在两处 `prefixRules` 与两处 YAML `rules:` 段首插入 `DOMAIN,cdn.jsdmirror.com,直连`），本 fork 当时只 diff 了全量版脚本，整条漏掉，两天后才发现。**正确做法**：先 `curl -s "https://api.github.com/repos/AIsouler/MyClash/commits?per_page=20"` 列出上游提交，再对可疑提交取 `commits/<sha>` 看 `files` 数组，逐个文件核对，而不是只看 `Script/mihomoScript.js`。现在可直接 `node Tools/sync-upstream.js compare --fetch`，它会打印上游每个提交改到的文件并标出 `[改脚本]`。
+- **fork 仓库的 Issues 默认是关闭的，issue 告警会稳定失败**：GitHub 对 fork 出来的仓库把 `has_issues` 设为 `false`，此时 `gh issue create` 报 `the '<owner>/<repo>' repository has disabled issues`。2026-10 排查时先误判成 `gh` 按 remote 猜错仓库（那个问题真实存在，已修），其实根因是功能没开。现已启用，workflow 也加了 `has_issues` 探测：未启用时跳过并给 notice，不刷无意义警告。**排查同类问题时先查 `gh api repos/<owner>/<repo> --jq .has_issues`，别急着怀疑权限。**
+- **workflow 里 `$变量` 后面紧跟中文会把中文并进变量名**：`echo "fail=$fail（应为 1）"` 在 bash 下会去找名为 `fail（` 的变量，展开为空。写带中文的日志时务必用 `${VAR}` 花括号形式，或让变量后跟空格/标点。同理，`if "$BIN" ... -t | tail -1; then` 的退出码是 `tail` 的而非内核的——**校验类命令绝不能接管道后判 `if`**，否则校验形同虚设。
 - **上游「删代码」的提交最阴险：声明被自动合并删掉，而使用点还在**。2026-10 同步上游 `cf3d3f6a`（移除链式代理）时，`链式代理` 开关、`dialerProxyName`、`const chainEnabled`、`const chainGroup` 这些**声明行**在无冲突的情况下被自动删除，而冲突区里保留下来的 `chainEnabled` / `chainGroup` **使用点**还在，于是报 `chainEnabled is not defined` / `chainGroup is not defined`。精简版更隐蔽：`链式代理` 开关被删后，默认值恰好都是 falsy，功能测试仍然全绿，只有 `node Tools/sync-upstream.js compare` 才看得出缺参。**结论**：删功能的提交必须把「声明」和「使用」成对核对，别只看冲突标记。
 - **本 fork 有意偏离上游的地方**（同步时别顺手改回去）：`生成倍率组` 默认 `false`（上游 `true`，**仅全量版**，精简版保持上游的 `true`）；保留链式代理功能（上游 `cf3d3f6a` 已整体移除，含 100+ 行测试，**两版都保留**）；新增 VG 家宽功能（`vgRegex`、`autoExcludeRegex`、`vgCfGroups`，**仅全量版**），其中 `vgCfGroupNames`（`Script/mihomoScript.js:1195-1345` 区间）**有意注入所有分流策略组**，便于把家宽节点作为任意分流目标，不是遗漏；自动选择组里「自动选择」排在 `proxies` 首位（上游排末位，**仅全量版**）；精简版额外补了上游只给全量版的 `GitHub` 分流组。
 - **上游家宽节点组与本 fork VG 家宽是两套语义，别合并**：上游 `d906c45` 的「家宽节点」组用关键词归类（`homeRegionDefinitions` 正则 `家宽|住宅|原生\s*IP|家庭宽带|ISP|RES|residential`），受 `生成家宽节点组` 开关控制；本 fork 的 `VG家宽` / `🏠 家宽自动` 只认 `vgRegex` 的 `🏠 XX-家宽-NN` 固定格式，受 `VG` 开关控制。两者靠「VG 开启时 `buildRegionGroups` 先跳过 VG 节点」保证不重复收录（`Test/suites/integration.js` 有对应用例锁定）。**改任意一边都要先跑这两条用例**。
