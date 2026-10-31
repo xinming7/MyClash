@@ -64,6 +64,11 @@ jobs:
           git remote add upstream "$UPSTREAM_REPO" 2>/dev/null || git remote set-url upstream "$UPSTREAM_REPO"
           git fetch upstream --prune --tags
 
+          if ! git rev-parse --verify --quiet "${UPSTREAM_REF}^{commit}" >/dev/null; then
+            echo "::error::无法解析引用 ${UPSTREAM_REF}，请确认它存在于上游仓库（或写成 upstream/main）"
+            exit 1
+          fi
+
           AHEAD=$(git rev-list --count HEAD.."$UPSTREAM_REF")
           echo "上游领先 $AHEAD 个提交"
           if [ "$AHEAD" -eq 0 ]; then
@@ -185,7 +190,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          gh label create upstream-sync-failed --color B60205 --description "自动同步上游失败" 2>/dev/null || true
+          # 必须显式 --repo：本流程会新增名为 upstream 的远程，gh 会按远程猜仓库，
+          # 不指定就会把 issue 建到上游仓库（无权限）。
+          gh label create upstream-sync-failed --repo "$GITHUB_REPOSITORY" --color B60205 --description "自动同步上游失败" 2>/dev/null || true
 
           BODY=$(cat <<EOF
           自动同步上游失败，main 未被修改（全程在临时分支操作，已丢弃）。
@@ -217,12 +224,16 @@ jobs:
           EOF
           )
 
-          EXISTING=$(gh issue list --label upstream-sync-failed --state open --json number --jq '.[0].number' || true)
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label upstream-sync-failed --state open --json number --jq '.[0].number' 2>/dev/null || true)
+          TITLE="upstream-sync 失败：$(date -u +%Y-%m-%d)"
+
           if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --body "$BODY"
-            echo "已追加到既有 issue #$EXISTING"
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY" || echo "⚠️ 追加评论失败，请直接看运行记录"
           else
-            gh issue create --title "upstream-sync 失败：$(date -u +%Y-%m-%d)" --body "$BODY" --label upstream-sync-failed
+            # label 可能因权限创建失败，退化为不带 label 建 issue，避免告警本身把原始错误盖掉
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY" --label upstream-sync-failed \
+              || gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY" \
+              || echo "⚠️ 创建 issue 失败，请直接看运行记录"
           fi
 
       - name: 结果摘要
