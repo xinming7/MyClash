@@ -164,6 +164,63 @@ jobs:
           npm --prefix Test install
           node Test/run-tests.js
 
+      - name: 缓存 mihomo 内核
+        if: steps.gate.outputs.has_update == '1'
+        uses: actions/cache@v4
+        with:
+          path: ~/mihomo-bin
+          key: mihomo-1.19.33-linux-amd64-compatible
+
+      - name: 准备 mihomo 内核
+        id: kernel
+        if: steps.gate.outputs.has_update == '1'
+        run: |
+          VER=1.19.33
+          DIR="$HOME/mihomo-bin"
+          BIN="$DIR/mihomo"
+          mkdir -p "$DIR"
+          if [ ! -x "$BIN" ]; then
+            URL="https://github.com/MetaCubeX/mihomo/releases/download/v${VER}/mihomo-linux-amd64-compatible-v${VER}.gz"
+            echo "下载内核：$URL"
+            curl -fsSL --retry 3 --retry-delay 2 -o "$DIR/mihomo.gz" "$URL" \
+              || { echo "::error::mihomo 内核下载失败，无法做配置校验"; exit 1; }
+            gunzip -f "$DIR/mihomo.gz"
+            chmod +x "$BIN"
+          fi
+          "$BIN" -v | head -1
+          echo "bin=$BIN" >> "$GITHUB_OUTPUT"
+
+      - name: 校验 · 配置产物可被内核加载（mihomo -t）
+        if: steps.gate.outputs.has_update == '1'
+        run: |
+          BIN="${{ steps.kernel.outputs.bin }}"
+
+          # 生成产物：全量版开 VG（覆盖「VG 开但订阅无家宽节点」这条空组路径），精简版默认。
+          # 产出 JSON 即可——JSON 是 YAML 子集，mihomo 能直接解析，无需 YAML 依赖。
+          node Tools/gen-config.js Script/mihomoScript.js "$RUNNER_TEMP/full.json" '{"VG":true}'
+          node Tools/gen-config.js Script/Script.js "$RUNNER_TEMP/lite.json"
+
+          fail=0
+          check() {
+            local name="$1" src="$2"
+            mkdir -p "$RUNNER_TEMP/c_$name"
+            cp "$src" "$RUNNER_TEMP/c_$name/config.yaml"
+            echo "=== $name ==="
+            if "$BIN" -d "$RUNNER_TEMP/c_$name" -f "$RUNNER_TEMP/c_$name/config.yaml" -t; then
+              echo "✔ $name 通过"
+            else
+              echo "::error::$name 未通过 mihomo 校验（测试全绿但配置非法）"
+              fail=1
+            fi
+          }
+
+          check full "$RUNNER_TEMP/full.json"
+          check lite "$RUNNER_TEMP/lite.json"
+          check static-full Config/mihomoConfig.yaml
+          check static-lite Config/mihomoConfigLite.yaml
+
+          exit $fail
+
       - name: 提交并推送 main
         if: steps.gate.outputs.has_update == '1'
         run: |
@@ -182,13 +239,35 @@ jobs:
             git log --oneline origin/main..main
             exit 0
           fi
-          git push origin main
+
+          # 校验期间可能有其他 workflow（如 format_and_test 的自动格式化）或人工提交
+          # 推进了 main，此时直接 push 会因非快进失败——但那不是本次同步的问题。
+          # 对齐远程后必须重跑关键校验，否则推的是「没验过的组合」。
+          for attempt in 1 2 3; do
+            if git push origin main; then
+              echo "::notice::推送成功（第 $attempt 次尝试）"
+              exit 0
+            fi
+            echo "::warning::第 $attempt 次推送失败，与远程对齐后重跑校验"
+            git fetch origin main
+            if ! git merge origin/main --no-edit; then
+              echo "::error::与远程 main 合并冲突，需人工处理（本次未推送）"
+              exit 1
+            fi
+            node Tools/sync-upstream.js verify
+            node Tools/sync-upstream.js replay --ref "$UPSTREAM_REF"
+            node Test/run-tests.js
+          done
+          echo "::error::连续 3 次推送均失败，请检查分支保护或仓库权限"
+          exit 1
 
       - name: 失败告警
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           # 必须显式 --repo：本流程会新增名为 upstream 的远程，gh 会按远程猜仓库，
           # 不指定就会把 issue 建到上游仓库（无权限）。
@@ -234,6 +313,25 @@ jobs:
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY" --label upstream-sync-failed \
               || gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY" \
               || echo "⚠️ 创建 issue 失败，请直接看运行记录"
+          fi
+
+          # Telegram 推送：未配置 secret 时静默跳过；推送失败也只 warning，
+          # 不能让告警通道本身把原始错误盖掉。
+          if [ -n "${TELEGRAM_BOT_TOKEN}" ] && [ -n "${TELEGRAM_CHAT_ID}" ]; then
+            # 用 printf 而非多行字面量：YAML 块标量的缩进会被原样带进消息
+            TEXT=$(printf '⚠️ MyClash 上游自动同步失败\n上游引用：%s\n触发方式：%s\nmain 未被修改（全程在临时分支操作，已丢弃）。\n\n运行记录：%s' \
+              "$UPSTREAM_REF" "${{ github.event_name }}" "$RUN_URL")
+            if curl -fsS --retry 2 --retry-delay 2 -X POST \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=${TEXT}" \
+              -o /dev/null; then
+              echo "Telegram 已通知"
+            else
+              echo "::warning::Telegram 推送失败，请查看 issue 或运行记录"
+            fi
+          else
+            echo "未配置 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID，跳过 Telegram 通知"
           fi
 
       - name: 结果摘要
