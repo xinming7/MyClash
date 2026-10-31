@@ -303,16 +303,22 @@ jobs:
           EOF
           )
 
-          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label upstream-sync-failed --state open --json number --jq '.[0].number' 2>/dev/null || true)
           TITLE="upstream-sync 失败：$(date -u +%Y-%m-%d)"
 
-          if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY" || echo "⚠️ 追加评论失败，请直接看运行记录"
+          # fork 仓库的 Issues 默认是关闭的，此时 gh issue 必然失败并打一条无意义的
+          # 警告。先探测功能是否启用再决定，Telegram 与运行失败邮件不受影响。
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY" --jq '.has_issues' 2>/dev/null || echo false)" = "true" ]; then
+            EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label upstream-sync-failed --state open --json number --jq '.[0].number' 2>/dev/null || true)
+            if [ -n "$EXISTING" ]; then
+              gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY" || echo "⚠️ 追加评论失败，请直接看运行记录"
+            else
+              # label 可能因权限创建失败，退化为不带 label 建 issue，避免告警本身把原始错误盖掉
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY" --label upstream-sync-failed \
+                || gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY" \
+                || echo "⚠️ 创建 issue 失败，请直接看运行记录"
+            fi
           else
-            # label 可能因权限创建失败，退化为不带 label 建 issue，避免告警本身把原始错误盖掉
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY" --label upstream-sync-failed \
-              || gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY" \
-              || echo "⚠️ 创建 issue 失败，请直接看运行记录"
+            echo "::notice::仓库未启用 Issues，跳过 issue 告警（Telegram 与运行失败邮件仍会送达）"
           fi
 
           # Telegram 推送：未配置 secret 时静默跳过；推送失败也只 warning，
