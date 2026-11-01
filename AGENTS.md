@@ -74,7 +74,24 @@
 
 **推送前会对齐远程**：校验期间若有其他 workflow（如 `format_and_test` 的自动格式化）或人工提交推进了 main，直接 push 会因非快进失败。workflow 改为失败后 `fetch` + `merge` 再推，最多 3 次，且对齐后**重跑** verify / replay / 测试，避免推出没验过的组合。
 
-**注意**：分发走 raw URL 的 `@main`，推送 main 等于立即发布给所有客户端。所以校验顺序不可省；首次上线建议先用 `dry_run` 观察几轮。改 workflow 时别动 `concurrency: upstream-sync`，并发的两次同步会在 push 时互相打断。
+**演练真推（零变更）**：上游没有新提交时想验证推送段，可造一个「main + 空提交」的临时分支当模拟上游，再手动 `workflow_dispatch` 真跑：
+
+```bash
+git checkout -b test/upstream-sim origin/main
+git commit --allow-empty -m "test(sim): 上游模拟更新（空提交）"
+git push -u origin test/upstream-sim && git checkout main
+
+gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
+  -f ref=origin/test/upstream-sim -f dry_run=false
+```
+
+`AHEAD=1` 能过 gate，合并 → 注入 → 五项校验 → commit → push 全部真实执行，但产物与 main 逐字节相同，raw URL 客户端无感知。确认零变更的方式：`git diff --stat <基线tag> origin/main` 应输出为空。演练完记得删掉远程与本地 `test/upstream-sim`。
+
+2026-11-01 用此法完成首推演练：运行 `41257242980`，L0 直合、注入 0 处/跳过 48 处、238 项测试全过、mihomo `-t` 四份全过，`efbf2e9..60fcf9b main -> main` **第 1 次推送即成功**（未走非快进重试）。代价是 main 多两个提交（空提交 + merge commit），文件不变。
+
+**局限**：零 diff 不满足 `format_and_test` 的 paths 过滤，所以那次没触发它；也验不到「推送带真实文件变更」和「分支保护拒绝后 3 次重试是否生效」。加了分支保护后建议再演练一次。
+
+**注意**：分发走 raw URL 的 `@main`，推送 main 等于立即发布给所有客户端，所以校验顺序不可省。首次真推已验证通过（见上），`dry_run` 现在留给「想先看差异再决定推不推」的场景。改 workflow 时别动 `concurrency: upstream-sync`，并发的两次同步会在 push 时互相打断。
 
 ## 改这个项目时的坑
 
