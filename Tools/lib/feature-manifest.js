@@ -211,13 +211,11 @@ const FEATURES = [
       },
       {
         id: 'lite-github-service',
-        why: 'GitHub 分流组定义（provider + 规则）',
+        why: 'GitHub 分流组定义（provider + 规则）；锚点取 Telegram 组开头，避开上游调整 AI 组 rules 时失效',
         marker: /name: 'GitHub',/,
-        op: 'replace',
-        anchor: ["    rules: ['RULE-SET,ai,AI'],", '  },'],
+        op: 'insertBefore',
+        anchor: ['  {', "    name: 'Telegram',"],
         text: [
-          "    rules: ['RULE-SET,ai,AI'],",
-          '  },',
           '  {',
           "    name: 'GitHub',",
           '    baseOption: selectBaseOption,',
