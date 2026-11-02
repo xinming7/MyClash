@@ -122,6 +122,10 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
 
 - **锚点还分「锚上游原文」和「锚别的补丁的产物」，后者是更隐蔽的失败源**：如果补丁 A 的锚点那一行是补丁 B 注入的（上游原版里根本没有），那 A 的存活就押在 B 身上 —— B 一旦被删/改，A 会跟着炸，而且报错指向 A，排查方向会被带偏。2026-11-02 全量体检（`node Tools/audit-anchors.js`）在 48 个「补丁 × 版本」组合里查出 3 处这种依赖并已消除：`vg-switch`（原来锚 `chain-switch` 注入的 `链式代理: false,`，改锚上游原文的 `代理IPV6优先: false,`，并把该特性在清单里排到 `chain-switch` 之前以保持产物字节不变）、`custom-ruleset-rules`（原来锚 `prefix-domains` 注入的 `DOMAIN,static-file-global.353355.xyz,直连`，改 `insertBefore` 锚「私有网络直连」这组的上游原文）、`custom-fakeip-filter`（原来锚 `'rule-set:fakeip_filter',`，上游「优化/补充 DNS 过滤项」正是在这一段施工，改 `insertBefore` 锚同数组里最闲的 `'rule-set:geolocation-cn',`）。**顺手删掉了 `vg-main-groups`**：它的锚点是 `main-groups` 的产物、marker 又被 `main-groups` 抢先命中，永远走不到自己的锚点（`audit` 里显示 `[未验证]`），且 `main-groups` 的 full 版 text 已含 `...vgCfGroups,` —— 纯死代码。**加新补丁前先跑一遍 `audit-anchors.js --strict`，它会把这类依赖直接判成非 0。**
 
+- **上游重排代码时，同一处会同时存在两种形态——补丁要用「多候选锚点 + 候选级 text」**：2026-11-02 上游 `6bc887c`「代理 IP 规则去掉 no-resolve 并延后到域名规则之后」给 `buildFunctionalGroups` 返回值新增了 `functionalIpRules`，并把 `main()` 里的调用从 5 行折成 2 行，一次打断 3 个补丁 ×2 版本 = 6 个锚点（`chain-return` / `main-destructure` / `chain-minimal-return`）。麻烦点在于**预检 `replay` 用的是 `git merge-base`（旧基线）**，所以 `main` 上的脚本必须仍能被旧形态重建，而合并后又要能被新形态重建——单一锚点做不到。现在 `Tools/lib/patch-engine.js` 支持两种写法：① `substring: true` + 单行片段锚点（只替换行内片段，上游往字段列表中间加东西不受影响）；② `anchor: [{ anchor: [...], text }, ...]` 多候选，按顺序试第一个命中，**每个候选可带自己的 `text`**（旧形态没有 `functionalIpRules`，不能凭空插入；新形态漏了它就会 `functionalIpRules is not defined`）。写多候选时注意 `printWidth: 120`——5 行折行的第一行只要超 120，prettier 就会折回 2 行，所以 `main` 侧只能保留 2 行形态。
+
+- **「解构字段漏补」是五项校验里唯一只有测试能抓的错**：同一次上游重构中，如果只更新了锚点、忘记在 `main()` 的解构里补 `functionalIpRules`，会出现极其误导的组合：`replay` **逐字节一致**（它只比字节，不跑代码）、`verify` **特性齐全**、`mihomo -t` **四份全过**，但 `node Test/run-tests.js` 直接红 87 项，报 `functionalIpRules is not defined`。原因是上游 `main()` 的 `rules` 拼接里展开了 `...functionalIpRules`，解构漏了就是未定义变量。**教训：不要因为 replay 绿了就跳过测试；改 `buildFunctionalGroups` 的返回值/解构时，字段集合必须成对核对**（与上面那条「返回值必须与解构对齐」是同一类问题的上游版本）。
+
 ## 相关
 
 - 详细档案：`/Users/liujiaming/Documents/deepseek-harness/default-workspace/project-kb/MyClash.md`

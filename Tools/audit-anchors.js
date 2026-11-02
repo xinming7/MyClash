@@ -29,7 +29,7 @@
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const { applyFeaturesToContent, findAll } = require('./lib/patch-engine');
+const { applyFeaturesToContent, findAll, toCandidates } = require('./lib/patch-engine');
 const { FEATURES } = require('./lib/feature-manifest');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -100,7 +100,8 @@ function flavorsOf(feature, patch) {
 function pick(value, flavor) {
   if (value == null) return null;
   if (typeof value === 'string') return value;
-  if (Array.isArray(value)) return value.join('\n');
+  // 数组原样返回：多行锚点 / 多候选锚点都交给 toCandidates 展开
+  if (Array.isArray(value)) return value;
   if (value instanceof RegExp) return value.source;
   const picked = value[flavor];
   return picked == null ? null : pick(picked, flavor);
@@ -204,12 +205,17 @@ function audit(opts) {
       for (const flavor of flavorsOf(feature, patch)) {
         const anchorRaw = pick(patch.anchor, flavor);
         if (anchorRaw == null) continue;
-        const anchorLines = anchorRaw.split('\n');
+        const src = sources[flavor];
+        // 多候选锚点取「在上游原版里能命中的那个」来统计，都没命中就用第一个（会归为 P0）
+        const candidates = toCandidates(anchorRaw);
+        const anchorLines = (
+          candidates.find((cand) => findAll(src.lines, cand.lines, patch.substring === true).length > 0) ||
+          candidates[0]
+        ).lines;
         const rep = representativeLine(anchorLines);
         if (!rep) continue;
 
-        const src = sources[flavor];
-        const hits = findAll(src.lines, anchorLines).length;
+        const hits = findAll(src.lines, anchorLines, patch.substring === true).length;
         // 只有「上游原文里根本没有这一行」时，才说明锚点完全靠别的补丁生成——这才是真依赖。
         // 若上游原文里就有，即便某补丁的注入文本里也出现了同样的行，也不构成依赖。
         const produced = producedBy[flavor].filter((t) => t.patch !== patch.id && t.lines.has(rep)).map((t) => t.patch);

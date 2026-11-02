@@ -403,24 +403,19 @@ const FEATURES = [
         why: '极简模式提前 return 必须返回同构对象，否则 main() 解构直接报错',
         marker: /finalRuleProviders,\n      chainGroup,\n      directGroup,/,
         op: 'replace',
-        anchor: ['      functionalRules: [],', '      finalRuleProviders,', '      directGroup,', '    };'],
+        // 锚点只取 finalRuleProviders / directGroup 这两行稳定字段名。
+        // 原先还锚了上一行 `functionalRules: [],`，上游 2026-11-02 在两者之间插入
+        // `functionalIpRules: [],` 后锚点整段失效——所以刻意避开「字段列表」本身。
+        anchor: ['      finalRuleProviders,', '      directGroup,'],
         text: {
           full: [
-            '      functionalRules: [],',
             '      finalRuleProviders,',
             '      chainGroup,',
             '      directGroup,',
             '      // 极简模式不生成 VG / CF 前置组，但 main() 会无条件解构该字段，必须返回数组',
             '      vgCfGroups: [],',
-            '    };',
           ].join('\n'),
-          lite: [
-            '      functionalRules: [],',
-            '      finalRuleProviders,',
-            '      chainGroup,',
-            '      directGroup,',
-            '    };',
-          ].join('\n'),
+          lite: ['      finalRuleProviders,', '      chainGroup,', '      directGroup,'].join('\n'),
         },
       },
       {
@@ -454,10 +449,13 @@ const FEATURES = [
         why: 'buildFunctionalGroups 返回值增加 chainGroup',
         marker: /finalRuleProviders, chainGroup, directGroup/,
         op: 'replace',
-        anchor: '  return { globalGroup, functionalGroups, functionalRules, finalRuleProviders, directGroup };',
+        // 子串锚点：只绑字段列表尾部。上游 2026-11-02 在 finalRuleProviders 之前插入
+        // `functionalIpRules`，整行锚点当场失效；锚尾部后，往中间加字段不再打断注入。
+        substring: true,
+        anchor: ', finalRuleProviders, directGroup };',
         text: {
-          full: '  return { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup, vgCfGroups };',
-          lite: '  return { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup };',
+          full: ', finalRuleProviders, chainGroup, directGroup, vgCfGroups };',
+          lite: ', finalRuleProviders, chainGroup, directGroup };',
         },
       },
     ],
@@ -472,23 +470,48 @@ const FEATURES = [
         why: '返回值新增字段，main() 的解构必须同步',
         marker: /chainGroup,[^}]*\} =\s*\n\s*buildFunctionalGroups/,
         op: 'replace',
+        // 上游 2026-11-02 重构后，同一处代码有两种形态，各自需要不同的替换文本：
+        //  ① 旧形态：5 行折行，buildFunctionalGroups 不返回 functionalIpRules
+        //  ② 新形态：2 行，上游新增 functionalIpRules 且 main() 里会展开它——漏解构会直接
+        //     `functionalIpRules is not defined`。replay 只比字节、verify 只查特性，两者都发现
+        //     不了，只有测试套件会红。所以候选级 text 必须与各自形态的字段严格对应。
         anchor: [
-          '  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, directGroup } = buildFunctionalGroups(',
-          '    filteredProxies,',
-          '    generatedRegionGroups,',
-          '    { customProxyNames, customGroup },',
-          '  );',
+          {
+            anchor: [
+              '  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, directGroup } = buildFunctionalGroups(',
+              '    filteredProxies,',
+              '    generatedRegionGroups,',
+              '    { customProxyNames, customGroup },',
+              '  );',
+            ],
+            text: {
+              full: [
+                '  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup, vgCfGroups } =',
+                '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
+              ].join('\n'),
+              lite: [
+                '  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup } =',
+                '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
+              ].join('\n'),
+            },
+          },
+          {
+            anchor: [
+              '  const { globalGroup, functionalGroups, functionalRules, functionalIpRules, finalRuleProviders, directGroup } =',
+              '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
+            ],
+            text: {
+              full: [
+                '  const { globalGroup, functionalGroups, functionalRules, functionalIpRules, finalRuleProviders, chainGroup, directGroup, vgCfGroups } =',
+                '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
+              ].join('\n'),
+              lite: [
+                '  const { globalGroup, functionalGroups, functionalRules, functionalIpRules, finalRuleProviders, chainGroup, directGroup } =',
+                '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
+              ].join('\n'),
+            },
+          },
         ],
-        text: {
-          full: [
-            '  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup, vgCfGroups } =',
-            '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
-          ].join('\n'),
-          lite: [
-            '  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup } =',
-            '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
-          ].join('\n'),
-        },
       },
       {
         id: 'main-groups',

@@ -49,10 +49,27 @@ function resolve(value, flavor, patchId, field) {
   throw new PatchError(`补丁字段类型不支持：${field || '?'}`, patchId);
 }
 
-/** 在行数组中查找连续多行锚点，返回所有起始下标 */
-function findAll(lines, anchorLines) {
+/**
+ * 在行数组中查找锚点，返回所有命中行的下标。
+ *
+ * - 默认：连续多行「整行 trim 后相等」，可唯一定位代码块，且不受 prettier 缩进影响。
+ * - substring=true：单行内子串匹配。用于「只绑一段稳定片段」的场景，例如返回值对象里
+ *   `, finalRuleProviders, directGroup };` 这种字段列表尾部——上游往列表中间加字段
+ *   （2026-11-02 就加了 functionalIpRules）时，整行锚点会整条失效，尾部锚点不受影响。
+ *   片段仍必须唯一，命中多行照样报错，不会静默误改。
+ */
+function findAll(lines, anchorLines, substring = false) {
   const needle = anchorLines.map((s) => String(s).trim());
   const hits = [];
+
+  if (substring) {
+    const frag = needle[0];
+    for (let i = 0; i < lines.length; i += 1) {
+      if (lines[i].includes(frag)) hits.push(i);
+    }
+    return hits;
+  }
+
   for (let i = 0; i + needle.length <= lines.length; i += 1) {
     let matched = true;
     for (let j = 0; j < needle.length; j += 1) {
@@ -64,6 +81,38 @@ function findAll(lines, anchorLines) {
     if (matched) hits.push(i);
   }
   return hits;
+}
+
+/**
+ * 把 anchor 规整成「候选列表」：每项 { lines, text? }，按顺序尝试，取第一个唯一命中的。
+ *
+ * 支持四种写法：
+ *  - 'a'                          → 单个单行候选
+ *  - ['a', 'b']                   → 单个多行候选
+ *  - [['a','b'], ['c']]           → 多个候选，共用补丁级 text
+ *  - [{ anchor: [...], text: 'x' }] → 多个候选，各自携带替换文本
+ *
+ * 多候选是为「上游重排同一段代码」准备的：2026-11-02 上游把 main() 里的
+ * buildFunctionalGroups 调用从 5 行折成 2 行，并新增 functionalIpRules 字段。
+ * 两种形态需要的替换文本不同（旧形态没有该字段，不能凭空插入），故支持候选级 text。
+ */
+function toCandidates(anchor) {
+  if (typeof anchor === 'string') return [{ lines: [anchor] }];
+  if (!Array.isArray(anchor)) throw new PatchError('anchor 必须是字符串或数组');
+
+  const isSpecList =
+    anchor.length > 0 && anchor.every((x) => x && typeof x === 'object' && !Array.isArray(x) && x.anchor);
+  if (isSpecList) {
+    return anchor.map((spec) => ({
+      lines: Array.isArray(spec.anchor) ? spec.anchor : [spec.anchor],
+      text: spec.text,
+    }));
+  }
+
+  const isCandidateList = anchor.length > 0 && anchor.every((x) => Array.isArray(x));
+  if (isCandidateList) return anchor.map((lines) => ({ lines }));
+
+  return [{ lines: anchor }];
 }
 
 /**
@@ -85,28 +134,59 @@ function applyPatch(lines, patch, flavor) {
   }
 
   const anchor = resolve(patch.anchor, flavor, patch.id, 'anchor');
-  const text = resolve(patch.text, flavor, patch.id, 'text');
-  const anchorLines = Array.isArray(anchor) ? anchor : [anchor];
+  const candidates = toCandidates(anchor);
+  const baseText = patch.text == null ? null : resolve(patch.text, flavor, patch.id, 'text');
 
-  const hits = findAll(lines, anchorLines);
-  if (hits.length === 0) {
-    throw new PatchError(
-      `锚点未找到，上游可能改动了这段代码，需人工确认后更新锚点：\n        ${anchorLines[0].trim()}`,
-      patch.id,
-    );
-  }
-  if (hits.length > 1) {
-    throw new PatchError(
-      `锚点不唯一（命中 ${hits.length} 处），需补充上下文行以唯一定位：\n        ${anchorLines[0].trim()}`,
-      patch.id,
-    );
+  // 子串锚点只做「行内片段替换」：语义简单，越界风险小；插入类操作仍须用整行锚点
+  const substring = patch.substring === true;
+  if (substring) {
+    if (op !== 'replace') throw new PatchError('substring 锚点只支持 replace 操作', patch.id);
+    if (candidates.length !== 1 || candidates[0].lines.length !== 1) {
+      throw new PatchError('substring 锚点只能写一行片段', patch.id);
+    }
   }
 
-  const idx = hits[0];
-  const newLines = text.split('\n');
-  if (op === 'insertBefore') lines.splice(idx, 0, ...newLines);
-  else if (op === 'insertAfter') lines.splice(idx + anchorLines.length, 0, ...newLines);
-  else lines.splice(idx, anchorLines.length, ...newLines);
+  // 按顺序试每个候选，取第一个唯一命中的。命中多处仍然报错——候选之间不允许互相掩盖歧义。
+  let matched = null;
+  for (const cand of candidates) {
+    const hits = findAll(lines, cand.lines, substring);
+    if (hits.length > 1) {
+      throw new PatchError(
+        `锚点不唯一（命中 ${hits.length} 处），需补充上下文行以唯一定位：\n        ${cand.lines[0].trim()}`,
+        patch.id,
+      );
+    }
+    if (hits.length === 1) {
+      matched = { idx: hits[0], lines: cand.lines, text: cand.text };
+      break;
+    }
+  }
+  if (!matched) {
+    const hint = candidates.map((c) => `        ${c.lines[0].trim()}`).join('\n');
+    throw new PatchError(`锚点未找到，上游可能改动了这段代码，需人工确认后更新锚点：\n${hint}`, patch.id);
+  }
+
+  // 候选可携带自己的替换文本（同一处代码在不同上游形态下需要的产物不同）
+  const text = matched.text == null ? baseText : resolve(matched.text, flavor, patch.id, 'text');
+  if (text == null) throw new PatchError('补丁缺少 text（补丁级与候选级都没有）', patch.id);
+  if (substring && text.includes('\n')) throw new PatchError('substring 锚点的 text 必须是单行片段', patch.id);
+
+  const idx = matched.idx;
+  const anchorLines = matched.lines;
+  if (substring) {
+    // 只替换命中行里的那个片段，行的其余部分（前缀、缩进）原样保留
+    const frag = anchorLines[0].trim();
+    lines[idx] = lines[idx].replace(frag, text);
+  } else if (op === 'insertBefore') {
+    const newLines = text.split('\n');
+    lines.splice(idx, 0, ...newLines);
+  } else if (op === 'insertAfter') {
+    const newLines = text.split('\n');
+    lines.splice(idx + anchorLines.length, 0, ...newLines);
+  } else {
+    const newLines = text.split('\n');
+    lines.splice(idx, anchorLines.length, ...newLines);
+  }
 
   return { status: 'applied', detail: anchorLines[0].trim().slice(0, 48) };
 }
@@ -183,4 +263,5 @@ module.exports = {
   applyFeaturesToFile,
   featureStatus,
   findAll,
+  toCandidates,
 };
