@@ -55,6 +55,25 @@ const FEATURES = [
     ],
   },
 
+  // vg-switch 必须排在 chain-switch 之前：两者都插在「代理IPV6优先」之后，
+  // 先插 VG 再插链式代理，最终顺序才是「链式代理 → VG」，与历史产物逐字节一致。
+  // 这也是两者唯一的耦合方式——锚点都绑上游原文，互不依赖。
+  {
+    id: 'vg-switch',
+    title: 'VG 家宽 / CF前置 开关',
+    only: 'full',
+    patches: [
+      {
+        id: 'vg-switch',
+        why: '本 fork 独有的 VG 三类策略组总开关',
+        marker: /^\s*VG: true,/m,
+        op: 'insertAfter',
+        anchor: '  代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）',
+        text: '\n  // 以下为 VG 家宽策略配置\n  VG: true, // 是否启用 VG家宽 / ⚡CF前置 / 🏠家宽自动 策略组',
+      },
+    ],
+  },
+
   {
     id: 'chain-switch',
     title: '链式代理开关',
@@ -66,22 +85,6 @@ const FEATURES = [
         op: 'insertAfter',
         anchor: '  代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）',
         text: '  链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经”链式中转”策略组中转）',
-      },
-    ],
-  },
-
-  {
-    id: 'vg-switch',
-    title: 'VG 家宽 / CF前置 开关',
-    only: 'full',
-    patches: [
-      {
-        id: 'vg-switch',
-        why: '本 fork 独有的 VG 三类策略组总开关',
-        marker: /^\s*VG: true,/m,
-        op: 'insertAfter',
-        anchor: '  链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经”链式中转”策略组中转）',
-        text: '\n  // 以下为 VG 家宽策略配置\n  VG: true, // 是否启用 VG家宽 / ⚡CF前置 / 🏠家宽自动 策略组',
       },
     ],
   },
@@ -129,8 +132,11 @@ const FEATURES = [
         id: 'custom-ruleset-rules',
         why: '自定义规则集对应的分流规则，必须与 provider 同时存在',
         marker: /'RULE-SET,custom_proxy,默认代理'/,
-        op: 'insertAfter',
-        anchor: "  'DOMAIN,static-file-global.353355.xyz,直连',",
+        // 锚点取「私有网络直连」这组的开头（空行 + 注释 + 首条规则），全部是上游原文。
+        // 曾经锚 `'DOMAIN,static-file-global.353355.xyz,直连',`——那是 prefix-domains 注入的产物，
+        // 等于把本补丁的存活押在另一个补丁上。改成 insertBefore 后插入位置不变，但不再有跨补丁依赖。
+        op: 'insertBefore',
+        anchor: ['', '  // 私有网络直连', "  'RULE-SET,private,直连',"],
         text: [
           '',
           '  // 自定义规则集（ruleset-builder 产物，独立维护，始终生效）',
@@ -541,8 +547,12 @@ const FEATURES = [
         why: 'custom_fakeip_filter 是域名规则集，需注册进 fake-ip-filter 而非 rules',
         marker: /'rule-set:custom_fakeip_filter'/,
         only: 'full',
-        op: 'insertAfter',
-        anchor: "      'rule-set:fakeip_filter',",
+        // 锚 fake-ip-filter 里最闲的一行：`'rule-set:geolocation-cn',` 在上游历史上只被碰过 1 次
+        // （2026-08-19 引入），而同数组的 `'rule-set:private',` 与 `'rule-set:fakeip_filter',` 各被改过 3 次
+        // —— 后两者所在的这一段正是上游「补充/调整 DNS 过滤项」的施工区。
+        // fake-ip-filter 是集合语义，插在 geolocation-cn 之前与插在 fakeip_filter 之后完全等价。
+        op: 'insertBefore',
+        anchor: "      'rule-set:geolocation-cn',",
         text: "      'rule-set:custom_fakeip_filter',",
       },
       {
@@ -699,27 +709,10 @@ const FEATURES = [
         anchor: "    proxies: ['默认代理', '直连', ...groupNamesOfSelect],",
         text: "    proxies: ['默认代理', ...vgCfGroupNames, '直连', ...groupNamesOfSelect],",
       },
-      {
-        id: 'vg-main-groups',
-        why: 'VG 三组插入最终 proxy-groups',
-        marker: /\.\.\.vgCfGroups,/,
-        op: 'replace',
-        anchor: [
-          '    ...(customGroup ? [customGroup] : []),',
-          '    ...(chainGroup ? [chainGroup] : []),',
-          '    directGroup,',
-          '    ...generatedRegionGroups,',
-          '  ];',
-        ],
-        text: [
-          '    ...(customGroup ? [customGroup] : []),',
-          '    ...(chainGroup ? [chainGroup] : []),',
-          '    directGroup,',
-          '    ...vgCfGroups,',
-          '    ...generatedRegionGroups,',
-          '  ];',
-        ].join('\n'),
-      },
+      // 注意：VG 三组插入最终 proxy-groups 的动作由 chain-main 的 `main-groups` 补丁承担
+      // （它的 full 版 text 里已含 `...vgCfGroups,`）。曾经这里另有一个 `vg-main-groups`
+      // 补丁做同样的事，但它的锚点是 main-groups 的产物、marker 又被 main-groups 抢先命中，
+      // 于是永远走不到自己的锚点，锚点写错了也无从发现——属于死代码，2026-11 已删除。
     ],
   },
 ];

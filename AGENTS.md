@@ -22,6 +22,7 @@
   - 注入特性：`node Tools/sync-upstream.js apply --dry-run` 确认后去掉 `--dry-run`
   - 只查不改：`node Tools/sync-upstream.js verify`（适合放进 CI）
   - 回放校验：`node Tools/sync-upstream.js replay [--ref upstream/main] [--json]`，确认「脚本 == 上游 + 清单」，非 0 退出即有未声明漂移
+  - 锚点体检：`node Tools/audit-anchors.js [--json] [--strict] [--no-history]`，逐个锚点查「在上游还能不能命中 / 上游历史上被改过几次 / 是否依赖别的补丁的产物」，有死锚点即非 0 退出
   - 首次需配 upstream：`git remote add upstream https://github.com/AIsouler/MyClash.git`
 - 配置校验：`/opt/homebrew/bin/mihomo -d <tmpdir> -f <cfg.yaml> -t`（本机 mihomo 1.19.33）
   - 生成待校验产物：`node Tools/gen-config.js Script/mihomoScript.js /tmp/full.json '{"VG":true}'` 与 `node Tools/gen-config.js Script/Script.js /tmp/lite.json`
@@ -117,6 +118,8 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
 - **`buildFunctionalGroups()` 的返回值必须与 `main()` 的解构对齐**：`Script/mihomoScript.js:1299` 返回 `{ globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup, vgCfGroups }`，`main()` 在 `Script/mihomoScript.js:1790` **无条件**解构这 7 个字段。函数里每个提前 `return` 的分支都必须返回同构对象——2026-10 就踩过一次：极简模式分支漏了 `vgCfGroups`，导致 `TypeError: vgCfGroups is not iterable`（`75550f2` 起存在，`v1.0.0` 修复）。**上游 `AIsouler/MyClash` 没有这个 bug，是本 fork 合并 VG 功能时引入的回归**，别拿"上游也这样"当不改的理由。新增提前分支时记得同步补齐。
 
 - **补丁锚点别绑上游会改的业务内容，要绑稳定结构**：`anchor` 匹配的是**上游原版**里的连续行，上游一动那段代码锚点就失效。2026-11-01 就踩了：lite 版补 GitHub 分流组的补丁 `lite-github-service` 把 `rules: ['RULE-SET,ai,AI'],` 当锚点，上游 `170f615`「补充 Claude 第三方组件域名」把它改成了多行数组，同步直接失败。这个失败很阴险：**merge 无冲突 → `apply` 报「注入 0 处」→ `verify` 全绿**（`marker: /name: 'GitHub',/` 命中就 `skipped`，根本不校验锚点），只有 `replay` 才报「锚点未找到」。**别把 `verify` 通过当成锚点没问题的证据。** 修法是换锚点：现改为锚 Telegram 组开头 `['  {', "    name: 'Telegram',"]` + `insertBefore`，插入位置不变，但不再受 AI 组规则变化牵连。**新写补丁时优先锚注释、组名、`const` 声明，不要锚规则数组、开关默认值这类上游常动量。**
+
+- **锚点还分「锚上游原文」和「锚别的补丁的产物」，后者是更隐蔽的失败源**：如果补丁 A 的锚点那一行是补丁 B 注入的（上游原版里根本没有），那 A 的存活就押在 B 身上 —— B 一旦被删/改，A 会跟着炸，而且报错指向 A，排查方向会被带偏。2026-11-02 全量体检（`node Tools/audit-anchors.js`）在 48 个「补丁 × 版本」组合里查出 3 处这种依赖并已消除：`vg-switch`（原来锚 `chain-switch` 注入的 `链式代理: false,`，改锚上游原文的 `代理IPV6优先: false,`，并把该特性在清单里排到 `chain-switch` 之前以保持产物字节不变）、`custom-ruleset-rules`（原来锚 `prefix-domains` 注入的 `DOMAIN,static-file-global.353355.xyz,直连`，改 `insertBefore` 锚「私有网络直连」这组的上游原文）、`custom-fakeip-filter`（原来锚 `'rule-set:fakeip_filter',`，上游「优化/补充 DNS 过滤项」正是在这一段施工，改 `insertBefore` 锚同数组里最闲的 `'rule-set:geolocation-cn',`）。**顺手删掉了 `vg-main-groups`**：它的锚点是 `main-groups` 的产物、marker 又被 `main-groups` 抢先命中，永远走不到自己的锚点（`audit` 里显示 `[未验证]`），且 `main-groups` 的 full 版 text 已含 `...vgCfGroups,` —— 纯死代码。**加新补丁前先跑一遍 `audit-anchors.js --strict`，它会把这类依赖直接判成非 0。**
 
 ## 相关
 
