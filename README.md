@@ -35,7 +35,7 @@
 - **链式代理行为修正**：链式代理只对未配置 `dialer-proxy` 的自定义节点生效，不再覆盖用户手写的多级链路；关闭时会清理悬空引用
 - **家宽节点并存两套语义**：上游的「家宽节点」组按 `家宽|住宅|原生IP|家庭宽带|ISP|RES|residential` 关键词归类；本 fork 的 `VG家宽` / `🏠 家宽自动` 只认 `🏠 XX-家宽-NN` 固定格式。`VG` 开启时家宽/优选节点不会重复进「家宽节点」与地区组（由 `VG家宽`、`⚡ CF前置` 承载）；关闭 `VG` 时这些节点会正常回落到「家宽节点」与地区组，不会消失（全量版）
 
-使用本 fork 的改动时，请导入以下脚本链接（配置文件仍可用上面上游的链接）：
+使用本 fork 的改动时，请导入以下脚本链接（脚本与配置文件**一律走本仓库**，上游 `AIsouler/MyClash` 的链接只作对照，不含下述特性）：
 
 ```text
 https://raw.githubusercontent.com/xinming7/MyClash/main/Script/mihomoScript.js
@@ -85,7 +85,7 @@ https://raw.githubusercontent.com/xinming7/MyClash/main/Script/Script.js
 [mihomoScript.js](/Script/mihomoScript.js)，复制下面这个链接使用👇👇👇
 
 ```text
-https://raw.githubusercontent.com/AIsouler/MyClash/main/Script/mihomoScript.js
+https://raw.githubusercontent.com/xinming7/MyClash/main/Script/mihomoScript.js
 ```
 
 - **精简版**
@@ -93,7 +93,7 @@ https://raw.githubusercontent.com/AIsouler/MyClash/main/Script/mihomoScript.js
 [Script.js](/Script/Script.js)，复制下面这个链接使用👇👇👇
 
 ```text
-https://raw.githubusercontent.com/AIsouler/MyClash/main/Script/Script.js
+https://raw.githubusercontent.com/xinming7/MyClash/main/Script/Script.js
 ```
 
 |                                                                                   |
@@ -121,7 +121,7 @@ https://raw.githubusercontent.com/AIsouler/MyClash/main/Script/Script.js
 [mihomoConfig.yaml](/Config/mihomoConfig.yaml)，复制下面这个链接使用👇👇👇
 
 ```text
-https://raw.githubusercontent.com/AIsouler/MyClash/main/Config/mihomoConfig.yaml
+https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfig.yaml
 ```
 
 - **精简版**
@@ -129,7 +129,7 @@ https://raw.githubusercontent.com/AIsouler/MyClash/main/Config/mihomoConfig.yaml
 [mihomoConfigLite.yaml](/Config/mihomoConfigLite.yaml)，复制下面这个链接使用👇👇👇
 
 ```text
-https://raw.githubusercontent.com/AIsouler/MyClash/main/Config/mihomoConfigLite.yaml
+https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfigLite.yaml
 ```
 
 ---

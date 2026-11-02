@@ -28,12 +28,13 @@
   - 生成待校验产物：`node Tools/gen-config.js Script/mihomoScript.js /tmp/full.json '{"VG":true}'` 与 `node Tools/gen-config.js Script/Script.js /tmp/lite.json`
   - 产物是 JSON 但可直接喂 mihomo（JSON ⊂ YAML）；生成器遇空策略组即非 0 退出
 - 构建：（无）
-- 发布/部署：（无构建、无发版）客户端直接导入 raw URL：
-  - `https://raw.githubusercontent.com/AIsouler/MyClash/main/Script/mihomoScript.js`
-  - `https://raw.githubusercontent.com/AIsouler/MyClash/main/Script/Script.js`
-  - `https://raw.githubusercontent.com/AIsouler/MyClash/main/Config/mihomoConfig.yaml`
-  - `https://raw.githubusercontent.com/AIsouler/MyClash/main/Config/mihomoConfigLite.yaml`
-  - 脚本头部自述的 fork URL：`https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/main/Script/mihomoScript.js`
+- 发布/部署：（无构建、无发版）客户端直接导入 raw URL，**一律走本仓库 `xinming7/MyClash`**：
+  - `https://raw.githubusercontent.com/xinming7/MyClash/main/Script/mihomoScript.js`
+  - `https://raw.githubusercontent.com/xinming7/MyClash/main/Script/Script.js`
+  - `https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfig.yaml`
+  - `https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfigLite.yaml`
+  - 两个脚本头部的「源仓库 / 脚本链接」由清单里的 `brand` 特性改写（`brand-header` / `brand-header-lite`），**两版都必须改**：lite 版曾长期漏改，用户打开脚本看到的仍是上游地址。
+  - 上游 `AIsouler/MyClash` 的同类链接只作对照，不含本 fork 特性，**不要写进给用户的说明里**。
 
 ## 改动流程（用户明确要求）
 

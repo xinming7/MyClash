@@ -18,11 +18,11 @@ const FEATURES = [
   {
     id: 'brand',
     title: '脚本头部作者与源仓库指向本 fork',
-    only: 'full',
     patches: [
       {
         id: 'brand-header',
         why: '客户端直接导入本 fork 的 raw URL，头部信息需指向 fork',
+        only: 'full',
         marker: /源仓库：https:\/\/github\.com\/xinming7\/MyClash/,
         op: 'replace',
         anchor: [
@@ -34,6 +34,23 @@ const FEATURES = [
           ' * 作者：AIsouler，xinming7',
           ' * 源仓库：https://github.com/xinming7/MyClash',
           ' * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/main/Script/mihomoScript.js',
+        ].join('\n'),
+      },
+      {
+        id: 'brand-header-lite',
+        why: '同上，精简版头部与全量版只差脚本文件名，但同样是分发出去的地址',
+        only: 'lite',
+        marker: /源仓库：https:\/\/github\.com\/xinming7\/MyClash/,
+        op: 'replace',
+        anchor: [
+          ' * 作者：AIsouler',
+          ' * 源仓库：https://github.com/AIsouler/MyClash',
+          ' * 脚本链接：https://raw.githubusercontent.com/AIsouler/MyClash/main/Script/Script.js',
+        ],
+        text: [
+          ' * 作者：AIsouler，xinming7',
+          ' * 源仓库：https://github.com/xinming7/MyClash',
+          ' * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/main/Script/Script.js',
         ].join('\n'),
       },
     ],
