@@ -111,8 +111,13 @@ if (ahead > 0) {
   add('ok', 'main 与 stable 完全一致，没有待发布内容', null);
 }
 
-// 最新 tag 是否落在 stable 上：tag 打了但没发出去，等于发了个空版本
-const latestTag = tryGit('for-each-ref', '--sort=-creatordate', '--count=1', '--format=%(refname:short)', 'refs/tags');
+// 最新 tag 是否落在 stable 上：tag 打了但没发出去，等于发了个空版本。
+// 只看正式 tag（`vX.Y.Z`）：预发布 tag（`v1.7.2-rc1`）按设计就不推进 stable，
+// 把它算成「最新 tag」只会每次打 rc 都多一条假 notice。
+const latestTag =
+  (tryGit('for-each-ref', '--sort=-creatordate', '--format=%(refname:short)', 'refs/tags') || '')
+    .split('\n')
+    .filter((t) => t && !t.includes('-'))[0] || '';
 if (latestTag) {
   const tagSha = tryGit('rev-parse', '--verify', '--quiet', `${latestTag}^{commit}`);
   if (tagSha === stableSha) {
