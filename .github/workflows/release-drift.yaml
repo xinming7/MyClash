@@ -82,6 +82,10 @@ jobs:
         run: |
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
+          # 与 upstream-sync 一致：label 先确保存在（已存在会失败，用 || true 忽略），
+          # 否则首次告警会因为 label 不存在而打出一次无意义的失败
+          gh label create release-drift --repo "${GITHUB_REPOSITORY}" --color FBCA04 --description "stable 积压未发布" 2>/dev/null || true
+
           BODY=$(cat <<EOF
           stable 落后于 main，超过 ${MAX_LAG_DAYS} 天未发布，或者两边已分叉。
 
