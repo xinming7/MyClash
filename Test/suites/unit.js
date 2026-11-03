@@ -146,18 +146,19 @@ function runUnitTests(h, api, meta) {
   });
 
   h.section('单元测试 · buildCustomizeGroups（链式代理）');
-  h.test('链式代理启用：按需添加 dialer-proxy（已有值保留）', () => {
+  h.test('链式代理启用：所有自定义节点强制写入 dialer-proxy（上游语义，覆盖已有值）', () => {
     withUnitOptions({ 链式代理: true }, () => {
       // 未指定 dialer-proxy 的节点自动接入链式中转
       const added = api.buildCustomizeGroups([], custom('自建独享'));
       h.assertEqual(added.customProxies[0]['dialer-proxy'], '链式中转', '未指定时应自动接入链式中转');
 
-      // 用户显式配置的 dialer-proxy 必须保留，不能被无条件覆盖
-      const kept = api.buildCustomizeGroups([], [{ ...mkCustomProxy('自建独享'), 'dialer-proxy': '旧中转' }]);
-      h.assertEqual(kept.customProxies[0]['dialer-proxy'], '旧中转', '用户显式配置应被保留');
+      // 上游用 `!== dialerProxyName` 判断后直接覆盖，用户手写的多级链路会被改写。
+      // 本 fork 曾改成「只补未指定的」，2026-11-03 起改为跟随上游，这里锁住新语义。
+      const overwritten = api.buildCustomizeGroups([], [{ ...mkCustomProxy('自建独享'), 'dialer-proxy': '旧中转' }]);
+      h.assertEqual(overwritten.customProxies[0]['dialer-proxy'], '链式中转', '已有值应被覆盖为链式中转');
     });
   });
-  h.test('链式代理关闭：清除指向链式中转的悬空引用', () => {
+  h.test('链式代理关闭：不清洗指向链式中转的 dialer-proxy（上游行为，属已知限制）', () => {
     withUnitOptions({ 链式代理: false }, () => {
       const r = api.buildCustomizeGroups(
         [],
@@ -166,8 +167,11 @@ function runUnitTests(h, api, meta) {
           { ...mkCustomProxy('自建-二级'), 'dialer-proxy': '自建-落地' },
         ],
       );
-      h.assert(!r.customProxies[0]['dialer-proxy'], '指向链式中转的引用应被清除');
-      h.assertEqual(r.customProxies[1]['dialer-proxy'], '自建-落地', '指向自建节点的引用应保留');
+      // 关闭时「链式中转」组不存在，这条引用是悬空的；上游不做清理，mihomo 加载会报
+      // `dialer-proxy not found`。锁住上游行为：一旦上游补上清理逻辑，本用例会红，
+      // 届时应改回「应被清除」并删掉 AGENTS.md 里的风险提示。
+      h.assertEqual(r.customProxies[0]['dialer-proxy'], '链式中转', '上游不清洗悬空引用');
+      h.assertEqual(r.customProxies[1]['dialer-proxy'], '自建-落地', '指向自建节点的引用原样保留');
     });
   });
   h.test('链式代理启用：策略组名改为“链式落地”，节点名称保持不变', () =>

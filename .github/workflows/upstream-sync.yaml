@@ -195,10 +195,27 @@ jobs:
         run: |
           BIN="${{ steps.kernel.outputs.bin }}"
 
-          # 生成产物：全量版开 VG（覆盖「VG 开但订阅无家宽节点」这条空组路径），精简版默认。
           # 产出 JSON 即可——JSON 是 YAML 子集，mihomo 能直接解析，无需 YAML 依赖。
+          #
+          # 组合是刻意选的，每个都对应一条「单元测试绿、配置非法」的盲区：
+          #  full           VG 开：覆盖「VG 开但订阅无家宽节点」的空组路径
+          #  full-noVG      VG 关：VG 三组与 vgCfGroupNames 全部不生成，是最常用的默认形态，
+          #                 漏了这条等于默认路径没进过内核
+          #  full-minimal   极简 + VG：极简模式在 VG 组构造前 return，main() 靠解构默认值兜底，
+          #                 漏了 vgCfGroups 就是 TypeError（只有内核步骤会真正跑一遍装配）
+          #  full-chain     VG + 链式代理 + 注入自定义节点：链式代理开启时 VG 组必须仍在
+          #                 （2026-11-03 上游恢复链式代理时，VG 载荷曾被整块静默丢弃）
+          #  lite           精简版默认
+          #  lite-chain     精简版 + 链式代理：链式是两版共有的上游功能，精简版缺 customizeProxies
+          #                 注入时容易只在全量版验证过
+          NODES='{"custom":[{"name":"自建-落地","type":"ss","server":"custom.example.com","port":443,"cipher":"aes-256-gcm","password":"x"}],"subscription":[{"name":"🏠 HK-家宽-01","type":"ss","server":"g.example.com","port":443,"cipher":"aes-256-gcm","password":"x"},{"name":"🇭🇰 香港 优选-01","type":"ss","server":"p.example.com","port":443,"cipher":"aes-256-gcm","password":"x"}]}'
+
           node Tools/gen-config.js Script/mihomoScript.js "$RUNNER_TEMP/full.json" '{"VG":true}'
+          node Tools/gen-config.js Script/mihomoScript.js "$RUNNER_TEMP/full-noVG.json" '{}'
+          node Tools/gen-config.js Script/mihomoScript.js "$RUNNER_TEMP/full-minimal.json" '{"VG":true,"极简模式":true}'
+          node Tools/gen-config.js Script/mihomoScript.js "$RUNNER_TEMP/full-chain.json" '{"VG":true,"链式代理":true}' "$NODES"
           node Tools/gen-config.js Script/Script.js "$RUNNER_TEMP/lite.json"
+          node Tools/gen-config.js Script/Script.js "$RUNNER_TEMP/lite-chain.json" '{"链式代理":true}' "$NODES"
 
           fail=0
           check() {
@@ -215,7 +232,11 @@ jobs:
           }
 
           check full "$RUNNER_TEMP/full.json"
+          check full-noVG "$RUNNER_TEMP/full-noVG.json"
+          check full-minimal "$RUNNER_TEMP/full-minimal.json"
+          check full-chain "$RUNNER_TEMP/full-chain.json"
           check lite "$RUNNER_TEMP/lite.json"
+          check lite-chain "$RUNNER_TEMP/lite-chain.json"
           check static-full Config/mihomoConfig.yaml
           check static-lite Config/mihomoConfigLite.yaml
 
@@ -285,9 +306,13 @@ jobs:
           1. 看运行记录里第一个红色的 step。
           2. 若是 **锚点未找到 / 锚点不唯一**：上游改动了补丁锚点所指的代码。
              报错会打印锚点首行，去上游对应位置取新原文，更新 \`Tools/lib/feature-manifest.js\`。
-          3. 若是 **特性校验失败**：上游删掉了某段被依赖的代码（声明丢失）。
+          3. 若是 **某块本地功能整块消失，但 verify / replay 全绿**：上游新增了结构相似的代码，
+             把补丁的 marker 抢先命中，补丁被判「已存在」而跳过（2026-11-03 恢复链式代理时，
+             VG 的四处载荷就是这样被吞掉的）。把 marker 收紧到本 fork 独有的写法，
+             并补一条「组合开关」的集成测试——这类回归只有测试和内核校验能发现。
+          4. 若是 **特性校验失败**：上游删掉了某段被依赖的代码（声明丢失）。
              用 \`git log -S'符号名' --oneline ${{ env.UPSTREAM_REF }}\` 确认，再补回。
-          4. 若是 **测试失败**：多为上游行为变更与本地特性冲突，本地复现后用
+          5. 若是 **测试失败**：多为上游行为变更与本地特性冲突，本地复现后用
              \`node Tools/sync-upstream.js apply\` 重放。
 
           ## 回滚

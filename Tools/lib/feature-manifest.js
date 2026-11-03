@@ -17,7 +17,7 @@
 const FEATURES = [
   {
     id: 'brand',
-    title: '脚本头部作者与源仓库指向本 fork',
+    title: '脚本头部作者、源仓库与图标基址指向本 fork',
     patches: [
       {
         id: 'brand-header',
@@ -33,7 +33,7 @@ const FEATURES = [
         text: [
           ' * 作者：AIsouler，xinming7',
           ' * 源仓库：https://github.com/xinming7/MyClash',
-          ' * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/main/Script/mihomoScript.js',
+          ' * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/stable/Script/mihomoScript.js',
         ].join('\n'),
       },
       {
@@ -50,8 +50,16 @@ const FEATURES = [
         text: [
           ' * 作者：AIsouler，xinming7',
           ' * 源仓库：https://github.com/xinming7/MyClash',
-          ' * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/main/Script/Script.js',
+          ' * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/stable/Script/Script.js',
         ].join('\n'),
+      },
+      {
+        id: 'brand-icons',
+        why: '图标基址原指向上游 AIsouler 仓库（本仓库内 80 个图标文件等于没用上）；改指本仓库后图标自持，不再依赖上游仓库存在',
+        marker: /gh\/xinming7\/MyClash@stable\/Icons\/svg\//,
+        op: 'replace',
+        anchor: "const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/AIsouler/MyClash@main/Icons/svg/';",
+        text: "const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/xinming7/MyClash@stable/Icons/svg/';",
       },
     ],
   },
@@ -72,9 +80,11 @@ const FEATURES = [
     ],
   },
 
-  // vg-switch 必须排在 chain-switch 之前：两者都插在「代理IPV6优先」之后，
-  // 先插 VG 再插链式代理，最终顺序才是「链式代理 → VG」，与历史产物逐字节一致。
-  // 这也是两者唯一的耦合方式——锚点都绑上游原文，互不依赖。
+  // 锚点仍绑「代理IPV6优先」（上游长期稳定的一行），因此 VG 开关落在
+  // 「代理IPV6优先 → VG → 链式代理」之间，与早期的「链式代理 → VG」顺序不同。
+  // 这里刻意不锚 `链式代理:` 那一行：上游 2026-11 恢复链式代理时，同一行的注释文本
+  // 就与本地版本不一致（”链式中转” vs “链式中转”），锚它会平白多一处失效点。
+  // 选项对象的字段顺序对 mihomo 无影响，仅影响阅读顺序。
   {
     id: 'vg-switch',
     title: 'VG 家宽 / CF前置 开关',
@@ -87,21 +97,6 @@ const FEATURES = [
         op: 'insertAfter',
         anchor: '  代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）',
         text: '\n  // 以下为 VG 家宽策略配置\n  VG: true, // 是否启用 VG家宽 / ⚡CF前置 / 🏠家宽自动 策略组',
-      },
-    ],
-  },
-
-  {
-    id: 'chain-switch',
-    title: '链式代理开关',
-    patches: [
-      {
-        id: 'chain-switch',
-        why: '上游已整体移除链式代理，本 fork 保留该能力',
-        marker: /^\s*链式代理: false,/m,
-        op: 'insertAfter',
-        anchor: '  代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）',
-        text: '  链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经”链式中转”策略组中转）',
       },
     ],
   },
@@ -165,20 +160,10 @@ const FEATURES = [
     ],
   },
 
-  {
-    id: 'dialer-const',
-    title: '链式中转常数',
-    patches: [
-      {
-        id: 'dialer-const',
-        why: '链式代理的 dialer-proxy 引用目标',
-        marker: /const dialerProxyName = '链式中转';/,
-        op: 'insertAfter',
-        anchor: 'const customizeProxies = [];',
-        text: "\n// 链式代理启用时，自定义节点的 dialer-proxy 引用目标\nconst dialerProxyName = '链式中转';",
-      },
-    ],
-  },
+  // 链式代理的开关（`链式代理: false,`）、常数（`dialerProxyName`）、策略组构造与
+  // `dialer-proxy` 处理自 2026-11-03 起全部由上游原生提供（上游 e0eb0da 恢复了
+  // cf3d3f6 删掉的链式代理），因此这里不再注入任何链式补丁。本 fork 曾有的
+  // `chain-customize`（只补不覆盖 + 关闭时清悬空引用）已按「优先复用上游」删除。
 
   {
     id: 'vg-regex',
@@ -274,273 +259,6 @@ const FEATURES = [
           '    if (ruleOptionsEnable.VG && (autoExcludeRegex.test(proxy.name) || vgRegex.test(proxy.name))) continue;',
           '',
         ].join('\n'),
-      },
-    ],
-  },
-
-  {
-    id: 'chain-customize',
-    title: '自定义节点接入链式中转',
-    patches: [
-      {
-        id: 'chain-customize-head',
-        why: '链式代理的 JSDoc、开关读取与「开了却无节点」的报错',
-        marker:
-          /function buildCustomizeGroups\(filteredProxies, customizeList = customizeProxies\) \{\n  const chainEnabled/,
-        op: 'replace',
-        anchor: [
-          ' * 自定义节点不参与订阅节点过滤，也不参与 hosts 改写及 DNS 域名处理。',
-          ' */',
-          'function buildCustomizeGroups(filteredProxies, customizeList = customizeProxies) {',
-          '  if (!customizeList.length) {',
-          '    return { customProxies: [], customProxyNames: [], customGroup: null };',
-          '  }',
-        ],
-        text: [
-          ' * 自定义节点不参与订阅节点过滤，也不参与 hosts 改写及 DNS 域名处理。',
-          ' *',
-          ' * 链式代理：开启时把未显式指定 dialer-proxy 的自定义节点接到“链式中转”组。',
-          ' * 用户自己写的 dialer-proxy 一律保留，不再无条件覆盖；关闭时清理指向“链式中转”的悬空引用。',
-          ' */',
-          'function buildCustomizeGroups(filteredProxies, customizeList = customizeProxies) {',
-          '  const chainEnabled = ruleOptionsEnable.链式代理;',
-          '',
-          '  if (!customizeList.length) {',
-          '    // 链式代理开启却没有自定义节点属于误配置，直接报错而不是静默产出空链路',
-          '    if (chainEnabled) {',
-          "      throw new Error('启用失败，请在脚本中添加自定义节点后尝试');",
-          '    }',
-          '    return { customProxies: [], customProxyNames: [], customGroup: null };',
-          '  }',
-        ].join('\n'),
-      },
-      {
-        id: 'chain-customize-body',
-        why: '按需补 dialer-proxy，并清理指向链式中转的悬空引用',
-        marker: /let customProxy = name === normalized\.name/,
-        op: 'replace',
-        anchor: '    customProxies.push(name === normalized.name ? normalized : { ...normalized, name });',
-        text: [
-          '    let customProxy = name === normalized.name ? normalized : { ...normalized, name };',
-          '',
-          '    // 链式代理开启时，仅对未指定 dialer-proxy 的节点自动接入“链式中转”，',
-          '    // 保留用户显式配置的多级链路（如自建 A 经自建 B 中转）',
-          "    if (chainEnabled && !customProxy['dialer-proxy']) {",
-          "      customProxy = { ...customProxy, 'dialer-proxy': dialerProxyName };",
-          '    }',
-          '',
-          '    // 链式代理关闭时“链式中转”组不存在，必须清掉指向它的引用，否则是悬空引用',
-          "    if (!chainEnabled && customProxy['dialer-proxy'] === dialerProxyName) {",
-          '      customProxy = { ...customProxy };',
-          "      delete customProxy['dialer-proxy'];",
-          '    }',
-          '',
-          '    customProxies.push(customProxy);',
-        ].join('\n'),
-      },
-      {
-        id: 'chain-customize-name',
-        why: '链式落地时策略组改名为「链式落地」，避免语义误导',
-        marker: /name: chainEnabled \? '链式落地' : '自建节点'/,
-        op: 'replace',
-        anchor: "    name: '自建节点',",
-        text: "    name: chainEnabled ? '链式落地' : '自建节点',",
-      },
-    ],
-  },
-
-  {
-    id: 'chain-groups',
-    title: '链式中转策略组与 GLOBAL 组装',
-    patches: [
-      {
-        id: 'chain-decl',
-        why: 'buildFunctionalGroups 内读取链式代理开关',
-        marker: /分流组添加所有节点;\n  const chainEnabled = ruleOptionsEnable\.链式代理;/,
-        op: 'insertAfter',
-        anchor: '  const addAllNodesToServiceGroupsEnabled = ruleOptionsEnable.分流组添加所有节点;',
-        text: '  const chainEnabled = ruleOptionsEnable.链式代理;',
-      },
-      {
-        id: 'chain-group-build',
-        why: '构建承载中转节点的「链式中转」组',
-        marker: /const chainGroup =\n\s*chainEnabled && customGroup/,
-        op: 'insertAfter',
-        anchor: '  const customGroupNames = customGroup ? [customGroup.name] : [];',
-        text: [
-          '',
-          '  // 链式代理：自定义节点作落地时需要一个“链式中转”组承载中转节点',
-          '  const chainGroup =',
-          '    chainEnabled && customGroup',
-          '      ? {',
-          '          ...selectBaseOption,',
-          '          name: dialerProxyName,',
-          '          proxies: filteredProxyNames,',
-          '          icon: `${iconBaseUrl}Bypass.svg`,',
-          '        }',
-          '      : null;',
-        ].join('\n'),
-      },
-      {
-        id: 'chain-minimal-global',
-        why: '极简模式 GLOBAL 组也要能选到链式中转',
-        marker: /\.\.\.\(chainGroup \? \[chainGroup\.name\] : \[\]\),\n\s*\.\.\.\(autoSelectGroupEnabled/,
-        op: 'replace',
-        anchor:
-          "      proxies: ['默认代理', ...customGroupNames, ...(autoSelectGroupEnabled ? [autoSelectGroup.name] : []), '直连'],",
-        text: [
-          '      proxies: [',
-          "        '默认代理',",
-          '        ...customGroupNames,',
-          '        ...(chainGroup ? [chainGroup.name] : []),',
-          '        ...(autoSelectGroupEnabled ? [autoSelectGroup.name] : []),',
-          "        '直连',",
-          '      ],',
-        ].join('\n'),
-      },
-      {
-        id: 'chain-minimal-return',
-        why: '极简模式提前 return 必须返回同构对象，否则 main() 解构直接报错',
-        marker: /finalRuleProviders,\n      chainGroup,\n      directGroup,/,
-        op: 'replace',
-        // 锚点只取 finalRuleProviders / directGroup 这两行稳定字段名。
-        // 原先还锚了上一行 `functionalRules: [],`，上游 2026-11-02 在两者之间插入
-        // `functionalIpRules: [],` 后锚点整段失效——所以刻意避开「字段列表」本身。
-        anchor: ['      finalRuleProviders,', '      directGroup,'],
-        text: {
-          full: [
-            '      finalRuleProviders,',
-            '      chainGroup,',
-            '      directGroup,',
-            '      // 极简模式不生成 VG / CF 前置组，但 main() 会无条件解构该字段，必须返回数组',
-            '      vgCfGroups: [],',
-          ].join('\n'),
-          lite: ['      finalRuleProviders,', '      chainGroup,', '      directGroup,'].join('\n'),
-        },
-      },
-      {
-        id: 'chain-full-global',
-        why: '完整模式 GLOBAL 组也要能选到链式中转',
-        marker: /\.\.\.\(chainGroup \? \[chainGroup\.name\] : \[\]\),\n\s*directGroup\.name,/,
-        op: 'replace',
-        anchor: [
-          '      ...customGroupNames,',
-          '      directGroup.name,',
-          '      ...generatedRegionGroups.map((g) => g.name),',
-        ],
-        text: {
-          full: [
-            '      ...vgCfGroupNames,',
-            '      ...customGroupNames,',
-            '      ...(chainGroup ? [chainGroup.name] : []),',
-            '      directGroup.name,',
-            '      ...generatedRegionGroups.map((g) => g.name),',
-          ].join('\n'),
-          lite: [
-            '      ...customGroupNames,',
-            '      ...(chainGroup ? [chainGroup.name] : []),',
-            '      directGroup.name,',
-            '      ...generatedRegionGroups.map((g) => g.name),',
-          ].join('\n'),
-        },
-      },
-      {
-        id: 'chain-return',
-        why: 'buildFunctionalGroups 返回值增加 chainGroup',
-        marker: /finalRuleProviders, chainGroup, directGroup/,
-        op: 'replace',
-        // 子串锚点：只绑字段列表尾部。上游 2026-11-02 在 finalRuleProviders 之前插入
-        // `functionalIpRules`，整行锚点当场失效；锚尾部后，往中间加字段不再打断注入。
-        substring: true,
-        anchor: ', finalRuleProviders, directGroup };',
-        text: {
-          full: ', finalRuleProviders, chainGroup, directGroup, vgCfGroups };',
-          lite: ', finalRuleProviders, chainGroup, directGroup };',
-        },
-      },
-    ],
-  },
-
-  {
-    id: 'chain-main',
-    title: 'main() 解构与策略组装配',
-    patches: [
-      {
-        id: 'main-destructure',
-        why: '返回值新增字段，main() 的解构必须同步',
-        marker: /chainGroup,[^}]*\} =\s*\n\s*buildFunctionalGroups/,
-        op: 'replace',
-        // 上游 2026-11-02 重构后，同一处代码有两种形态，各自需要不同的替换文本：
-        //  ① 旧形态：5 行折行，buildFunctionalGroups 不返回 functionalIpRules
-        //  ② 新形态：2 行，上游新增 functionalIpRules 且 main() 里会展开它——漏解构会直接
-        //     `functionalIpRules is not defined`。replay 只比字节、verify 只查特性，两者都发现
-        //     不了，只有测试套件会红。所以候选级 text 必须与各自形态的字段严格对应。
-        anchor: [
-          {
-            anchor: [
-              '  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, directGroup } = buildFunctionalGroups(',
-              '    filteredProxies,',
-              '    generatedRegionGroups,',
-              '    { customProxyNames, customGroup },',
-              '  );',
-            ],
-            text: {
-              full: [
-                '  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup, vgCfGroups } =',
-                '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
-              ].join('\n'),
-              lite: [
-                '  const { globalGroup, functionalGroups, functionalRules, finalRuleProviders, chainGroup, directGroup } =',
-                '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
-              ].join('\n'),
-            },
-          },
-          {
-            anchor: [
-              '  const { globalGroup, functionalGroups, functionalRules, functionalIpRules, finalRuleProviders, directGroup } =',
-              '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
-            ],
-            text: {
-              full: [
-                '  const { globalGroup, functionalGroups, functionalRules, functionalIpRules, finalRuleProviders, chainGroup, directGroup, vgCfGroups } =',
-                '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
-              ].join('\n'),
-              lite: [
-                '  const { globalGroup, functionalGroups, functionalRules, functionalIpRules, finalRuleProviders, chainGroup, directGroup } =',
-                '    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
-              ].join('\n'),
-            },
-          },
-        ],
-      },
-      {
-        id: 'main-groups',
-        why: '把链式中转组与 VG 组插入最终 proxy-groups',
-        marker: /\.\.\.\(chainGroup \? \[chainGroup\] : \[\]\),/,
-        op: 'replace',
-        anchor: [
-          '    ...(customGroup ? [customGroup] : []),',
-          '    directGroup,',
-          '    ...generatedRegionGroups,',
-          '  ];',
-        ],
-        text: {
-          full: [
-            '    ...(customGroup ? [customGroup] : []),',
-            '    ...(chainGroup ? [chainGroup] : []),',
-            '    directGroup,',
-            '    ...vgCfGroups,',
-            '    ...generatedRegionGroups,',
-            '  ];',
-          ].join('\n'),
-          lite: [
-            '    ...(customGroup ? [customGroup] : []),',
-            '    ...(chainGroup ? [chainGroup] : []),',
-            '    directGroup,',
-            '    ...generatedRegionGroups,',
-            '  ];',
-          ].join('\n'),
-        },
       },
     ],
   },
@@ -749,10 +467,82 @@ const FEATURES = [
         anchor: "    proxies: ['默认代理', '直连', ...groupNamesOfSelect],",
         text: "    proxies: ['默认代理', ...vgCfGroupNames, '直连', ...groupNamesOfSelect],",
       },
-      // 注意：VG 三组插入最终 proxy-groups 的动作由 chain-main 的 `main-groups` 补丁承担
-      // （它的 full 版 text 里已含 `...vgCfGroups,`）。曾经这里另有一个 `vg-main-groups`
-      // 补丁做同样的事，但它的锚点是 main-groups 的产物、marker 又被 main-groups 抢先命中，
-      // 于是永远走不到自己的锚点，锚点写错了也无从发现——属于死代码，2026-11 已删除。
+      // --- 以下是「把 VG 组接到上游既有的链式代理骨架上」的四处载荷 ---
+      // 2026-11-03 之前，这四处是寄居在 chain-groups / chain-main 两个特性里的：那些补丁的
+      // marker 形如 `finalRuleProviders,\n chainGroup,\n directGroup,`，靠同时命中上游的链式代码
+      // 来判定「已注入」。上游恢复链式代理后，原生代码把这些 marker 全部抢先命中，补丁被判「已存在」
+      // 而跳过，VG 组随之整块消失（verify 与 replay 都是绿的，因为清单本身也一起失效了）。
+      // 现在把 VG 载荷与链式代理彻底解耦：每条补丁的 marker 只认 VG 自己的产物。
+      {
+        id: 'vg-return',
+        why: '全量版返回值带上 VG 组（极简模式提前 return，由 main() 的解构默认值兜底）',
+        only: 'full',
+        // marker 只认「单独一行的 vgCfGroups,」，与 `...vgCfGroups,`、`vgCfGroups = [],` 区分开
+        marker: /^\s*vgCfGroups,$/m,
+        op: 'replace',
+        // 整段取值字段 + 结尾 `};`：`};` 把 full 的 return 与 main() 的解构区分开，
+        // `functionalGroups,` 把 full 的 return 与极简模式的 return 区分开。
+        // 上游若在返回值中间插字段，这里会响亮失败——按提示补一行即可。
+        anchor: [
+          'functionalGroups,',
+          'functionalRules,',
+          'functionalIpRules,',
+          'finalRuleProviders,',
+          'chainGroup,',
+          'directGroup,',
+          '};',
+        ],
+        text: [
+          '    functionalGroups,',
+          '    functionalRules,',
+          '    functionalIpRules,',
+          '    finalRuleProviders,',
+          '    chainGroup,',
+          '    directGroup,',
+          '    vgCfGroups,',
+          '  };',
+        ].join('\n'),
+      },
+      {
+        id: 'vg-global',
+        why: '全量版 GLOBAL 组也要能选到 VG 组',
+        only: 'full',
+        // 必须带上 `...functionalGroups.map(...)` 这一行：分流组里的 `...vgCfGroupNames,` 后面
+        // 也紧跟 `...customGroupNames,`，只写后两行会把分流组误判成 GLOBAL。
+        marker: /\.\.\.functionalGroups\.map\(\(g\) => g\.name\),\n\s*\.\.\.vgCfGroupNames,/,
+        op: 'insertAfter',
+        anchor: '      ...functionalGroups.map((g) => g.name),',
+        text: '      ...vgCfGroupNames,',
+      },
+      {
+        id: 'vg-destructure',
+        why: '解构时给 vgCfGroups 空数组默认值，极简模式不必再在返回值里伪造该字段',
+        only: 'full',
+        marker: /vgCfGroups = \[\],/,
+        op: 'replace',
+        anchor: [
+          'chainGroup,',
+          'directGroup,',
+          '} = buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
+        ],
+        text: [
+          '    chainGroup,',
+          '    directGroup,',
+          '    vgCfGroups = [],',
+          '  } = buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });',
+        ].join('\n'),
+      },
+      {
+        id: 'vg-main-groups',
+        why: '把 VG 组插入最终 proxy-groups（位于直连组之后、地区组之前）',
+        only: 'full',
+        marker: /^\s*\.\.\.vgCfGroups,$/m,
+        op: 'insertAfter',
+        // 锚点尾部必须是 directGroup,（insertAfter 插在锚点最后一行的后面）：
+        // 若把 `...generatedRegionGroups,` 也写进锚点，VG 组会跑到地区组之后，与历史产物顺序不符。
+        anchor: ['...(chainGroup ? [chainGroup] : []),', 'directGroup,'],
+        text: '    ...vgCfGroups,',
+      },
     ],
   },
 ];

@@ -2,7 +2,7 @@
  * mihomo配置覆写脚本（精简版）
  * 作者：AIsouler，xinming7
  * 源仓库：https://github.com/xinming7/MyClash
- * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/main/Script/Script.js
+ * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/stable/Script/Script.js
  * 友情推荐，非常好用、省电且内存占用低的代理软件：https://github.com/appshubcc/Bettbox
  */
 
@@ -42,7 +42,7 @@ const ruleOptionsEnable = {
   屏蔽国外QUIC: true, // 是否屏蔽国外QUIC流量
   代理IPV4优先: false, // 是否将订阅节点统一为 IPv4 优先（与“代理IPV6优先”同时开启时不生效）
   代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）
-  链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经”链式中转”策略组中转）
+  链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经“链式中转”策略组中转）
 };
 
 // 定义前置规则
@@ -136,7 +136,7 @@ const directProxies = [
 ];
 
 // 图标 URL 公共前缀
-const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/AIsouler/MyClash@main/Icons/svg/';
+const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/xinming7/MyClash@stable/Icons/svg/';
 
 // 规则集 URL 公共前缀
 const ruleSetBaseUrl = 'https://cdn.jsdmirror.com/gh/appshubcc/bett-rules@meta/geo/';
@@ -720,15 +720,11 @@ function buildRegionGroups(filteredProxies, customProxies) {
  * 处理自定义节点：标准化名称、与订阅节点重名时添加“自建-”前缀、内部去重，
  * 并构建“自建节点”策略组。
  * 自定义节点不参与订阅节点过滤，也不参与 hosts 改写及 DNS 域名处理。
- *
- * 链式代理：开启时把未显式指定 dialer-proxy 的自定义节点接到“链式中转”组。
- * 用户自己写的 dialer-proxy 一律保留，不再无条件覆盖；关闭时清理指向“链式中转”的悬空引用。
  */
 function buildCustomizeGroups(filteredProxies, customizeList = customizeProxies) {
   const chainEnabled = ruleOptionsEnable.链式代理;
 
   if (!customizeList.length) {
-    // 链式代理开启却没有自定义节点属于误配置，直接报错而不是静默产出空链路
     if (chainEnabled) {
       throw new Error('启用失败，请在脚本中添加自定义节点后尝试');
     }
@@ -748,19 +744,9 @@ function buildCustomizeGroups(filteredProxies, customizeList = customizeProxies)
     usedNames.add(name);
 
     let customProxy = name === normalized.name ? normalized : { ...normalized, name };
-
-    // 链式代理开启时，仅对未指定 dialer-proxy 的节点自动接入“链式中转”，
-    // 保留用户显式配置的多级链路（如自建 A 经自建 B 中转）
-    if (chainEnabled && !customProxy['dialer-proxy']) {
+    if (chainEnabled && customProxy['dialer-proxy'] !== dialerProxyName) {
       customProxy = { ...customProxy, 'dialer-proxy': dialerProxyName };
     }
-
-    // 链式代理关闭时“链式中转”组不存在，必须清掉指向它的引用，否则是悬空引用
-    if (!chainEnabled && customProxy['dialer-proxy'] === dialerProxyName) {
-      customProxy = { ...customProxy };
-      delete customProxy['dialer-proxy'];
-    }
-
     customProxies.push(customProxy);
   }
 
@@ -808,7 +794,6 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
   const baseGroupNames = baseGroups.filter((g) => ruleOptionsEnable[g.name]).map((g) => g.name);
   const customGroupNames = customGroup ? [customGroup.name] : [];
 
-  // 链式代理：自定义节点作落地时需要一个“链式中转”组承载中转节点
   const chainGroup =
     chainEnabled && customGroup
       ? {
@@ -950,7 +935,15 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
     icon: `${iconBaseUrl}Global.svg`,
   };
 
-  return { globalGroup, functionalGroups, functionalRules, functionalIpRules, finalRuleProviders, chainGroup, directGroup };
+  return {
+    globalGroup,
+    functionalGroups,
+    functionalRules,
+    functionalIpRules,
+    finalRuleProviders,
+    chainGroup,
+    directGroup,
+  };
 }
 
 // ---dns和hosts相关处理---
@@ -1468,8 +1461,15 @@ function main(config) {
 
   const generatedRegionGroups = ruleOptionsEnable.极简模式 ? [] : buildRegionGroups(filteredProxies, customProxies);
 
-  const { globalGroup, functionalGroups, functionalRules, functionalIpRules, finalRuleProviders, chainGroup, directGroup } =
-    buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });
+  const {
+    globalGroup,
+    functionalGroups,
+    functionalRules,
+    functionalIpRules,
+    finalRuleProviders,
+    chainGroup,
+    directGroup,
+  } = buildFunctionalGroups(filteredProxies, generatedRegionGroups, { customProxyNames, customGroup });
 
   const { dns, hosts, proxies: mappedProxies } = buildDnsAndHostsConfig(config, filteredProxies);
 
