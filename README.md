@@ -21,26 +21,31 @@
 
 ## 本 Fork 的改动
 
-本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)。改动集中在全量版脚本 `Script/mihomoScript.js`；精简版脚本 `Script/Script.js` 已同步 `GitHub` 策略组、链式代理与自定义规则集，但不含 VG 家宽等全量版独有功能。
+本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)。改动集中在全量版脚本 `Script/mihomoScript.js`；精简版脚本 `Script/Script.js` 已同步 `GitHub` 策略组与自定义规则集，但不含 VG 家宽等全量版独有功能。链式代理两版都由上游提供，本 fork 不做任何改动。
 
 - **新增 `GitHub` 分流策略组**：为 GitHub 域名单独分流，图标复用上游 GitHub 图标（全量版与精简版均已支持）
 - **同步上游增强**：零宽/不可见字符节点名匹配、公共 DNS 过滤项扩充（全量版与精简版均已同步）
 - **同步上游规则修复**：补回 `DOMAIN,cdn.jsdmirror.com,直连` 前置规则（避免规则集下载的鸡蛋问题），移除「圣地亚哥」地区匹配词
 - **修复极简模式崩溃**：修复开启“极简模式”时的 `TypeError: vgCfGroups is not iterable`
-- **保留链式代理**：上游已移除，本 fork 保留并改为自动指向「链式中转」策略组
+- **链式代理完全跟随上游**：上游曾于 `cf3d3f6a` 移除、又于 `e0eb0da` 恢复；本 fork 不再维护自有实现，开关、`dialer-proxy` 处理、以及「链式中转」/「链式落地」两个策略组一律用上游代码（2026-11-03 已移除此前的本地语义改动）。**注意上游的两个既有行为**：①开关开启时会把自定义节点已写的 `dialer-proxy` 直接覆盖为「链式中转」，手写的多级链路不保留；②开关关闭后不会清理指向「链式中转」的引用，若自定义节点里手写过该值，mihomo 加载会报 `dialer-proxy not found`
+- **图标自持**：脚本里的 `iconBaseUrl` 指向本仓库 `@stable/Icons/svg/`，仓库里那 80 个图标文件才真正被引用（此前指向上游 `AIsouler/MyClash`，本地这份等于没用上）；两个静态 `Config/*.yaml` 仍用上游图标地址，避免与上游的图标改动反复冲突
+- **分发与开发分离**：客户端导入的 raw 链接指向 `stable` 分支，`main` 是开发分支。自动同步、日常提交都只动 `main`，发布时才把 `stable` 快进过去并打 tag——一次误提交不会再直接推给所有客户端
 - **VG 开关职责收敛**：`VG` 只控制家宽相关策略组及其节点排除，不再控制自定义规则集；关闭 VG 时家宽/优选节点会正常归入地区组，而不会凭空消失
 - **新增自定义规则集**：接入 `custom_proxy` / `custom_direct` / `custom_direct_ip` 分流规则与 `custom_fakeip_filter` 假 IP 过滤，来自 [ruleset-builder](https://github.com/xinming7/ruleset-builder)，不受任何开关控制、始终生效（全量版与精简版均已接入）
 - **修复配置加载失败**：关闭 `GitHub` 开关时 `Microsoft` 组残留的 `github` 规则集引用、以及订阅仅含家宽/优选节点时基础组为空，此前都会让 mihomo 校验失败
 - **补全规则集下载直连域名**：`v6.gh-proxy.org`、`gh-proxy.org`、`static-file-global.353355.xyz` 加入前置直连，避免规则集拉取时走代理形成循环依赖
-- **链式代理行为修正**：链式代理只对未配置 `dialer-proxy` 的自定义节点生效，不再覆盖用户手写的多级链路；关闭时会清理悬空引用
 - **家宽节点并存两套语义**：上游的「家宽节点」组按 `家宽|住宅|原生IP|家庭宽带|ISP|RES|residential` 关键词归类；本 fork 的 `VG家宽` / `🏠 家宽自动` 只认 `🏠 XX-家宽-NN` 固定格式。`VG` 开启时家宽/优选节点不会重复进「家宽节点」与地区组（由 `VG家宽`、`⚡ CF前置` 承载）；关闭 `VG` 时这些节点会正常回落到「家宽节点」与地区组，不会消失（全量版）
 
 使用本 fork 的改动时，请导入以下脚本链接（脚本与配置文件**一律走本仓库**，上游 `AIsouler/MyClash` 的链接只作对照，不含下述特性）：
 
 ```text
-https://raw.githubusercontent.com/xinming7/MyClash/main/Script/mihomoScript.js
-https://raw.githubusercontent.com/xinming7/MyClash/main/Script/Script.js
+https://raw.githubusercontent.com/xinming7/MyClash/stable/Script/mihomoScript.js
+https://raw.githubusercontent.com/xinming7/MyClash/stable/Script/Script.js
 ```
+
+> [!NOTE]
+>
+> 分发走 `stable` 分支，与 `main` 分离：`main` 是开发分支，合并/推送不会自动影响已导入的客户端；只有发布时才会把 `stable` 快进到 `main` 并打 tag。想尝鲜可把链接里的 `stable` 换成 `main`，但不要在日常使用中这么做。
 
 ## 版本选择
 
@@ -85,7 +90,7 @@ https://raw.githubusercontent.com/xinming7/MyClash/main/Script/Script.js
 [mihomoScript.js](/Script/mihomoScript.js)，复制下面这个链接使用👇👇👇
 
 ```text
-https://raw.githubusercontent.com/xinming7/MyClash/main/Script/mihomoScript.js
+https://raw.githubusercontent.com/xinming7/MyClash/stable/Script/mihomoScript.js
 ```
 
 - **精简版**
@@ -93,12 +98,12 @@ https://raw.githubusercontent.com/xinming7/MyClash/main/Script/mihomoScript.js
 [Script.js](/Script/Script.js)，复制下面这个链接使用👇👇👇
 
 ```text
-https://raw.githubusercontent.com/xinming7/MyClash/main/Script/Script.js
+https://raw.githubusercontent.com/xinming7/MyClash/stable/Script/Script.js
 ```
 
 |                                                                                   |
 | --------------------------------------------------------------------------------- |
-| ![img](https://raw.githubusercontent.com/AIsouler/MyClash/main/Image/import.webp) |
+| ![img](Image/import.webp) |
 
 ---
 
@@ -121,7 +126,7 @@ https://raw.githubusercontent.com/xinming7/MyClash/main/Script/Script.js
 [mihomoConfig.yaml](/Config/mihomoConfig.yaml)，复制下面这个链接使用👇👇👇
 
 ```text
-https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfig.yaml
+https://raw.githubusercontent.com/xinming7/MyClash/stable/Config/mihomoConfig.yaml
 ```
 
 - **精简版**
@@ -129,14 +134,14 @@ https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfig.yaml
 [mihomoConfigLite.yaml](/Config/mihomoConfigLite.yaml)，复制下面这个链接使用👇👇👇
 
 ```text
-https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfigLite.yaml
+https://raw.githubusercontent.com/xinming7/MyClash/stable/Config/mihomoConfigLite.yaml
 ```
 
 ---
 
 ## 上游同步工具
 
-本 fork 自带一批上游没有的特性（VG 家宽三组、链式代理、自定义规则集、倍率组默认关闭等）。同步上游时手工在冲突里保住这些特性很容易漏，因此提供了 `Tools/sync-upstream.js` 把「对比 → 注入 → 校验」固化下来。
+本 fork 自带一批上游没有的特性（VG 家宽三组、自定义规则集、倍率组默认关闭等）。同步上游时手工在冲突里保住这些特性很容易漏，因此提供了 `Tools/sync-upstream.js` 把「对比 → 注入 → 校验」固化下来。
 
 ```bash
 # 1. 对比：上游领先哪些提交（标出哪些改了脚本）+ 本 fork 特性是否还在位
@@ -169,7 +174,7 @@ node Tools/audit-anchors.js
 
 因为 `replay` 能证明两个脚本等于「上游原版 + 特性清单」，脚本被当作**派生产物**而非合并对象：遇到冲突时不做人工式合并，而是取上游侧后重新注入，正确性由 `replay` 逐字节保证。流程全程在临时分支，五项校验（verify / 幂等 / replay / 测试 / mihomo -t）未全部通过不会推送 `main`；失败会开 issue 附排查顺序与回滚命令，`main` 保持原样。
 
-> 分发走 raw URL 的 `@main`，推送即发布，校验顺序不可省。首次真推已于 2026-11-01 演练通过（零变更、238 项测试与 mihomo `-t` 四份配置全绿）；`dry_run` 留给「先看差异再决定推不推」的场景。
+> 分发走 `@stable`，同步 workflow 只推 `main`，所以自动同步不会直接影响客户端；但发布时 `stable` 会快进到 `main`，校验顺序仍不可省。首次真推已于 2026-11-01 演练通过（零变更、238 项测试与 mihomo `-t` 四份配置全绿）；`dry_run` 留给「先看差异再决定推不推」的场景。2026-11-03 起内核校验扩到八份（新增「极简模式 + VG」「VG + 链式代理 + 自定义节点」「全量版关闭 VG」「精简版 + 链式代理」），用来守住这几条只有真跑装配才会暴露的路径。
 
 
 ---
@@ -178,10 +183,10 @@ node Tools/audit-anchors.js
 
 推荐使用 [Bettbox](https://github.com/appshubcc/Bettbox) 管理覆写脚本，可通过图形界面调整策略组和配置项
 
-|                                                                                  |                                                                                  |                                                                                  |                                                                                  |
-| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| ![img](https://raw.githubusercontent.com/AIsouler/MyClash/main/Image/IMG_1.webp) | ![img](https://raw.githubusercontent.com/AIsouler/MyClash/main/Image/IMG_2.webp) | ![img](https://raw.githubusercontent.com/AIsouler/MyClash/main/Image/IMG_3.webp) | ![img](https://raw.githubusercontent.com/AIsouler/MyClash/main/Image/IMG_4.webp) |
-| ![img](https://raw.githubusercontent.com/AIsouler/MyClash/main/Image/IMG_5.webp) | ![img](https://raw.githubusercontent.com/AIsouler/MyClash/main/Image/IMG_6.webp) | ![img](https://raw.githubusercontent.com/AIsouler/MyClash/main/Image/IMG_7.webp) | ![img](https://raw.githubusercontent.com/AIsouler/MyClash/main/Image/IMG_8.webp) |
+|                   |                   |                   |                   |
+| ----------------- | ----------------- | ----------------- | ----------------- |
+| ![img](Image/IMG_1.webp) | ![img](Image/IMG_2.webp) | ![img](Image/IMG_3.webp) | ![img](Image/IMG_4.webp) |
+| ![img](Image/IMG_5.webp) | ![img](Image/IMG_6.webp) | ![img](Image/IMG_7.webp) | ![img](Image/IMG_8.webp) |
 
 ## Star History
 

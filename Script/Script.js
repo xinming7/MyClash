@@ -2,7 +2,7 @@
  * mihomo配置覆写脚本（精简版）
  * 作者：AIsouler，xinming7
  * 源仓库：https://github.com/xinming7/MyClash
- * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/main/Script/Script.js
+ * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/stable/Script/Script.js
  * 友情推荐，非常好用、省电且内存占用低的代理软件：https://github.com/appshubcc/Bettbox
  */
 
@@ -136,7 +136,7 @@ const directProxies = [
 ];
 
 // 图标 URL 公共前缀
-const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/AIsouler/MyClash@main/Icons/svg/';
+const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/xinming7/MyClash@stable/Icons/svg/';
 
 // 规则集 URL 公共前缀
 const ruleSetBaseUrl = 'https://cdn.jsdmirror.com/gh/appshubcc/bett-rules@meta/geo/';
@@ -720,9 +720,6 @@ function buildRegionGroups(filteredProxies, customProxies) {
  * 处理自定义节点：标准化名称、与订阅节点重名时添加“自建-”前缀、内部去重，
  * 并构建“自建节点”策略组。
  * 自定义节点不参与订阅节点过滤，也不参与 hosts 改写及 DNS 域名处理。
- *
- * 链式代理：开启时把未显式指定 dialer-proxy 的自定义节点接到“链式中转”组。
- * 用户自己写的 dialer-proxy 一律保留，不再无条件覆盖；关闭时清理指向“链式中转”的悬空引用。
  */
 function buildCustomizeGroups(filteredProxies, customizeList = customizeProxies) {
   const chainEnabled = ruleOptionsEnable.链式代理;

@@ -11,11 +11,21 @@
  * 这里统一规范化成结构合法的节点，否则校验必然失败。
  *
  * 用法：
- *   node Tools/gen-config.js <脚本相对路径> <输出 json> [选项 JSON]
+ *   node Tools/gen-config.js <脚本相对路径> <输出 json> [选项 JSON] [节点 JSON]
+ *
+ * 第 4 个参数是「补充节点」，支持两种写法：
+ *   数组                      → 全部作为自定义节点（写进脚本的 customizeProxies）
+ *   {"custom":[...],"subscription":[...]}  → 前者是自定义节点，后者追加进订阅节点
+ * 它用于校验「需要特定节点才生效」的路径：链式代理在没有任何自定义节点时会直接抛错，
+ * VG 三组则要求订阅里出现「🏠 XX-家宽-NN」格式或带「优选」的节点。没有这个入口，
+ * 这两条路径永远进不了内核校验。
  *
  * 示例：
  *   node Tools/gen-config.js Script/mihomoScript.js /tmp/full.json '{"VG":true}'
  *   node Tools/gen-config.js Script/Script.js /tmp/lite.json
+ *   node Tools/gen-config.js Script/mihomoScript.js /tmp/chain.json '{"VG":true,"链式代理":true}' \
+ *     '{"custom":[{"name":"自建-落地","type":"ss","server":"c.example.com","port":443,"cipher":"aes-256-gcm","password":"x"}],
+ *       "subscription":[{"name":"🏠 HK-家宽-01","type":"ss","server":"g.example.com","port":443,"cipher":"aes-256-gcm","password":"x"}]}'
  */
 
 const fs = require('fs');
@@ -43,17 +53,43 @@ function normalize(p) {
 }
 
 function main(argv = process.argv.slice(2)) {
-  const [scriptRel, outFile, optionsJson] = argv;
+  const [scriptRel, outFile, optionsJson, nodesJson] = argv;
   if (!scriptRel || !outFile) {
-    console.error('用法: node Tools/gen-config.js <脚本相对路径> <输出 json> [选项 JSON]');
+    console.error('用法: node Tools/gen-config.js <脚本相对路径> <输出 json> [选项 JSON] [节点 JSON]');
     return 2;
   }
 
-  const api = loadScript(scriptRel);
-  const cfg = typicalSubscription();
-  cfg.proxies = cfg.proxies.map(normalize);
-
   const options = optionsJson ? JSON.parse(optionsJson) : {};
+
+  // 自定义节点走「改脚本源码」注入，与集成测试保持一致：脚本里 customizeProxies 是常量数组，
+  // 没有外部注入点。锚点找不到时直接失败，避免悄悄生成一份没测到链式代理的配置。
+  let customs = [];
+  let extraProxies = [];
+  if (nodesJson) {
+    const parsed = JSON.parse(nodesJson);
+    if (Array.isArray(parsed)) {
+      customs = parsed;
+    } else {
+      customs = parsed.custom || [];
+      extraProxies = parsed.subscription || [];
+    }
+  }
+
+  let transform = (code) => code;
+  if (customs.length) {
+    const anchor = 'const customizeProxies = [];';
+    if (!fs.readFileSync(path.resolve(REPO_ROOT, scriptRel), 'utf8').includes(anchor)) {
+      console.error(`::error::脚本中找不到注入锚点：${anchor}`);
+      return 1;
+    }
+    const injected = JSON.stringify(customs.map(normalize));
+    transform = (code) => code.replace(anchor, `const customizeProxies = ${injected};`);
+  }
+
+  const api = loadScript(scriptRel, transform);
+  const cfg = typicalSubscription();
+  cfg.proxies = [...cfg.proxies.map(normalize), ...extraProxies.map(normalize)];
+
   Object.assign(api.ruleOptionsEnable, options);
 
   const out = api.main(cfg);
@@ -63,6 +99,9 @@ function main(argv = process.argv.slice(2)) {
   const emptyGroups = groups.filter((g) => Array.isArray(g.proxies) && g.proxies.length === 0).map((g) => g.name);
 
   console.log(`[${path.basename(scriptRel)}] 选项=${JSON.stringify(options)}`);
+  if (customs.length || extraProxies.length) {
+    console.log(`  注入自定义节点 ${customs.length} 个 / 追加订阅节点 ${extraProxies.length} 个`);
+  }
   console.log(
     `  节点 ${(out.proxies || []).length} 个 / 策略组 ${groups.length} 个 / 规则 ${(out.rules || []).length} 条`,
   );
