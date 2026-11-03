@@ -88,7 +88,7 @@ git push origin vX.Y.Z        # 触发 release workflow，它把 stable 快进�
 - 想让所有人立刻拿到某次改动，就必须打 tag；**只推 `main` 等于没发布**。校验顺序仍然不可省——发布把 `stable` 指过去，也就把 `main` 上的一切交给了所有客户端。
 - 浏览器/客户端对 raw URL 有缓存（通常几分钟），换 tag 或换分支会立刻绕开缓存。
 
-**漂移告警**：`release-drift.yaml` 每天 21:00 UTC（北京时间 05:00，排在自动同步之后）跑 `Tools/check-release-drift.js`，三档判定——`stable` 不是 `main` 祖先（error）、待发布提交积压超过 7 天（warn）、最新 tag 没落到 stable 上（notice）。error/warn 会让 job 失败，并按与 `upstream-sync` 相同的三路告警（issue / Telegram / 运行失败邮件）。阈值可用 `workflow_dispatch` 的 `max_lag_days` 临时收紧。**这是「推送不再等于发布」之后唯一的兜底**：没有它，忘记打 tag 就等于客户端长期停在旧版本，而且无人察觉。
+**漂移告警**：`release-drift.yaml` 每天 21:00 UTC（北京时间 05:00，排在自动同步之后）跑 `Tools/check-release-drift.js`，三档判定——`stable` 不是 `main` 祖先（error）、待发布提交积压超过 7 天（warn）、最新 tag 没落到 stable 上（notice）。error/warn 会让 job 失败，并按与 `upstream-sync` 相同的三路告警（issue / Telegram / 运行失败邮件）。阈值可用 `workflow_dispatch` 的 `max_lag_days` 临时收紧；填 `now`（如 `2026-12-01`）可把「当前时间」往后挪来复现积压——本仓库提交时间常集中在同一天，否则积压天数恒为 0，warn 分支永远测不到。**这是「推送不再等于发布」之后唯一的兜底**：没有它，忘记打 tag 就等于客户端长期停在旧版本，而且无人察觉。判定详情：`--json` 可看结构化结论；「最新 tag」只看正式 tag，预发布 tag 不算（它按设计就不推进 stable）。
 
 ## 自动同步上游
 
