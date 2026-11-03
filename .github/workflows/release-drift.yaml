@@ -17,6 +17,10 @@ on:
         description: '允许积压的天数（超过则告警）'
         required: false
         default: '7'
+      now:
+        description: '（仅用于验证告警链路）把「当前时间」挪到该日期，如 2026-12-01；留空用真实时间'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -28,6 +32,9 @@ concurrency:
 
 env:
   MAX_LAG_DAYS: ${{ inputs.max_lag_days || '7' }}
+  # 本仓库的提交时间往往集中在同一天，ageDays 恒为 0，warn 分支平时根本触发不到。
+  # 所以留一个手动入口把时间往前挪，用来真正跑一次 issue + Telegram + job 失败的全链路。
+  NOW_OPT: ${{ inputs.now && format('--now {0}', inputs.now) || '' }}
 
 jobs:
   check:
@@ -46,7 +53,7 @@ jobs:
       - name: 检查发布漂移
         id: drift
         continue-on-error: true
-        run: node Tools/check-release-drift.js --max-lag-days "${MAX_LAG_DAYS}"
+        run: node Tools/check-release-drift.js --max-lag-days "${MAX_LAG_DAYS}" ${NOW_OPT}
 
       - name: 结果摘要
         if: always()

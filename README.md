@@ -188,7 +188,7 @@ workflow 依次做四件事：解析 tag 指向的提交（`-rc` 预发布 tag �
 
 ### 漂移告警
 
-发布流程之外的另一条保险是 `.github/workflows/release-drift.yaml`：每天北京时间 05:00 跑 `Tools/check-release-drift.js`，对比 `stable` 与 `main` 落后了多少提交、落后多少天，超过阈值就同时开 issue、发 Telegram、并让 job 失败（`continue-on-error` 只作用于采集步骤，告警步骤必跑）。本地也能跑：
+发布流程之外的另一条保险是 `.github/workflows/release-drift.yaml`：每天北京时间 05:00 跑 `Tools/check-release-drift.js`，对比 `stable` 与 `main` 落后了多少提交、落后多少天，超过阈值就同时开 issue、发 Telegram、并让 job 失败（`continue-on-error` 只作用于采集步骤，告警步骤必跑）。想验证告警链路本身，可在 Actions 里手动触发并填 `now`（把「当前时间」往后挪，本仓库提交时间往往集中在同一天，否则积压天数恒为 0）。本地也能跑：
 
 ```bash
 node Tools/check-release-drift.js                  # 默认阈值
