@@ -7,6 +7,7 @@ on:
       - 'Script/*'
       - 'Test/**'
       - 'Tools/**'
+      - '**/*.md'
       - '**/*.yaml'
       - '**/*.yml'
       - '.prettierrc*'
@@ -15,6 +16,7 @@ on:
       - 'Script/*'
       - 'Test/**'
       - 'Tools/**'
+      - '**/*.md'
       - '**/*.yaml'
       - '**/*.yml'
       - '.prettierrc*'
@@ -90,3 +92,21 @@ jobs:
 
       - name: run tests
         run: node Test/run-tests.js
+
+  # 文档里的 `Script/mihomoScript.js:1262` 这类引用会随脚本增删悄悄漂移。
+  # 校验逻辑与「特征串」表都在 Tools/ 下，这里只负责让它成为硬性检查：
+  # --strict 表示「文档里出现未登记的行号引用」也算失败，防止绕开维护。
+  doc-refs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v6
+
+      - name: setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: check doc line references
+        run: node Tools/check-doc-refs.js --strict

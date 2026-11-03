@@ -23,16 +23,19 @@
   - 只查不改：`node Tools/sync-upstream.js verify`（适合放进 CI）
   - 回放校验：`node Tools/sync-upstream.js replay [--ref upstream/main] [--json]`，确认「脚本 == 上游 + 清单」，非 0 退出即有未声明漂移
   - 锚点体检：`node Tools/audit-anchors.js [--json] [--strict] [--no-history]`，逐个锚点查「在上游还能不能命中 / 上游历史上被改过几次 / 是否依赖别的补丁的产物」，有死锚点即非 0 退出
+  - 文档行号：`node Tools/check-doc-refs.js [--strict] [--fix]`，校验文档里的 `文件:行号` 是否仍指向预期代码；`--fix` 按特征串重新定位（仅唯一命中时改写）
+  - 发布漂移：`node Tools/check-release-drift.js [--max-lag-days 7] [--stable ref] [--json]`，查 `stable` 落后 `main` 多少、是否分叉、最新 tag 有没有发出去
   - 首次需配 upstream：`git remote add upstream https://github.com/AIsouler/MyClash.git`
 - 配置校验：`/opt/homebrew/bin/mihomo -d <tmpdir> -f <cfg.yaml> -t`（本机 mihomo 1.19.33）
   - 生成待校验产物：`node Tools/gen-config.js Script/mihomoScript.js /tmp/full.json '{"VG":true}'` 与 `node Tools/gen-config.js Script/Script.js /tmp/lite.json`
   - 产物是 JSON 但可直接喂 mihomo（JSON ⊂ YAML）；生成器遇空策略组即非 0 退出
 - 构建：（无）
-- 发布/部署：（无构建、无发版）客户端直接导入 raw URL，**一律走本仓库 `xinming7/MyClash`**：
-  - `https://raw.githubusercontent.com/xinming7/MyClash/main/Script/mihomoScript.js`
-  - `https://raw.githubusercontent.com/xinming7/MyClash/main/Script/Script.js`
-  - `https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfig.yaml`
-  - `https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfigLite.yaml`
+- 发布/部署：客户端直接导入 raw URL，**一律走本仓库 `xinming7/MyClash` 的 `stable` 分支**（`main` 是开发分支，见「分发与发布」）：
+  - `https://raw.githubusercontent.com/xinming7/MyClash/stable/Script/mihomoScript.js`
+  - `https://raw.githubusercontent.com/xinming7/MyClash/stable/Script/Script.js`
+  - `https://raw.githubusercontent.com/xinming7/MyClash/stable/Config/mihomoConfig.yaml`
+  - `https://raw.githubusercontent.com/xinming7/MyClash/stable/Config/mihomoConfigLite.yaml`
+  - 发布 = 打 tag：`git tag -a vX.Y.Z && git push origin vX.Y.Z`，`release` workflow 自动把 `stable` 快进过去（不再需要手工 push stable）。
   - 两个脚本头部的「源仓库 / 脚本链接」由清单里的 `brand` 特性改写（`brand-header` / `brand-header-lite`），**两版都必须改**：lite 版曾长期漏改，用户打开脚本看到的仍是上游地址。
   - 上游 `AIsouler/MyClash` 的同类链接只作对照，不含本 fork 特性，**不要写进给用户的说明里**。
 
@@ -43,13 +46,18 @@
 
 同理，`AGENTS.md` 本身记录的环境事实（部署方式、凭据状态、已知坑）如果被改动影响，也要一并更新。
 
+**改完 `Script/*.js` 后、提交前跑一次 `node Tools/check-doc-refs.js --fix --strict`**：脚本行数一变，
+文档里的 `文件:行号` 就可能指向别的代码，肉眼重算靠不住（2026-11-03 那次 18 处里有 10 处要改）。
+
 ## 部署与 CI
 
-两个 workflow：`.github/workflows/format_and_test.yaml`（校验）与 `.github/workflows/upstream-sync.yaml`（自动同步上游，见下节）。
+四个 workflow：`format_and_test.yaml`（校验）、`upstream-sync.yaml`（自动同步上游）、`release.yaml`（打 tag 后快进 stable）、`release-drift.yaml`（stable 积压告警）。
 
-- 触发：`push`（限定 `main` + 路径 `Script/*`、`Test/**`、`Tools/**`、`**/*.yaml`、`**/*.yml`、`.prettierrc*`）、同样路径的 `pull_request`、`workflow_dispatch`。**没有 cron，也没有 release/artifact**，合并到 `main` 不会自动发版。
+- `format_and_test` 触发：`push`（限定 `main` + 路径 `Script/*`、`Test/**`、`Tools/**`、`**/*.md`、`**/*.yaml`、`**/*.yml`、`.prettierrc*`）、同样路径的 `pull_request`、`workflow_dispatch`。**没有 release/artifact**：产物就是 raw URL 本身。
 - job `format`（PR 时跳过，`contents: write`）：装 prettier 后对受控 `.js/.yml/.yaml` 跑 `prettier --write`，有 diff 就以 `github-actions[bot]` 提交 `chore: auto format` 并 push。
 - job `test`（`needs: format`）：`npm --prefix Test install` → `node Tools/sync-upstream.js verify` → `node Test/run-tests.js`。**verify 放在测试前**，因为它秒级返回，且是唯一能发现「特性被上游删掉但测试仍全绿」的检查。
+- job `doc-refs`（并行，无依赖）：`node Tools/check-doc-refs.js --strict`。文档行号漂移在这里变红；`--strict` 会把「文档里出现未登记的行号引用」也判成失败，防止有人绕过校验表直接写行号。改 `.md` 也会触发本 workflow（`**/*.md` 在 paths 里），所以纯文档改动同样会被检查。
+- `release` 与 `release-drift` 的细节见「分发与发布」。
 - 产物：无。dist 就是 raw URL 本身；图标与规则源走 jsDelivr（`cdn.jsdmirror.com`），改动必须 commit+push 后客户端才拿得到。
 
 ## 分发与发布（2026-11-03 起 `main` 不再直接对外）
@@ -62,20 +70,25 @@
 | `stable` | **客户端实际拉取的分支**，只在发布时快进 | 人工，见下 |
 | `vX.Y.Z` tag | 发布快照，回滚用 | 人工 |
 
-**发布流程**（`main` 校验全绿之后）：
+**发布流程**（`main` 校验全绿之后）只需打一个 tag：
 
 ```bash
 git checkout main && git pull
-git tag -a vX.Y.Z -m "release: vX.Y.Z" && git push origin vX.Y.Z
-git push origin main:stable          # 快进 stable，客户端此刻才更新
+git tag -a vX.Y.Z -m "release: vX.Y.Z"
+git push origin vX.Y.Z        # 触发 release workflow，它把 stable 快进到这个 tag
 ```
+
+`release.yaml` 做的事：校验 tag 形态（必须是 `vX.Y.Z`）→ 确认 `stable` 是目标提交的祖先（**只做快进，非快进直接失败并给出回滚命令**）→ `git push origin <sha>:stable` → 用 `ls-remote` 回读确认。带 `-` 的预发布 tag（`v1.7.1-rc1`）只打印 notice、不动 stable。也可以用 `workflow_dispatch` 指定任意 ref 并勾 `dry_run` 先看会推什么。
 
 要点：
 
-- `git push origin main:stable` 是**快进**，非强推；若 `stable` 落后多个提交也直接快进过去。
-- 回滚：`git push --force-with-lease origin vX.Y.(Z-1):stable`（**唯一允许强推 stable 的场景**，因为要让客户端回到旧代码）。
-- 想让所有人立刻拿到某次改动，就必须发布；只推 `main` 等于没发布。**校验顺序仍然不可省**——发布把 `stable` 指过去，也就把 `main` 上的一切交给了所有客户端。
+- **`stable` 只通过 release workflow 移动**。不要在本地 `git push origin main:stable`——那会绕过 tag 与快进校验，出现「客户端版本比最新 tag 还新」这种对不上的状态。
+- 分支保护：`main` 禁强推禁删除；`stable` 禁删除但**允许强推**，因为强推是回滚的专用路径，由人手动执行。
+- 回滚：`git push --force-with-lease origin vX.Y.(Z-1):stable`（**唯一允许强推 stable 的场景**，要让客户端回到旧代码）。回滚后 `stable` 不再是 `main` 的祖先，`release-drift` 会立刻报 error，这是预期行为，处理方式是重新打 tag 或接受分叉。
+- 想让所有人立刻拿到某次改动，就必须打 tag；**只推 `main` 等于没发布**。校验顺序仍然不可省——发布把 `stable` 指过去，也就把 `main` 上的一切交给了所有客户端。
 - 浏览器/客户端对 raw URL 有缓存（通常几分钟），换 tag 或换分支会立刻绕开缓存。
+
+**漂移告警**：`release-drift.yaml` 每天 21:00 UTC（北京时间 05:00，排在自动同步之后）跑 `Tools/check-release-drift.js`，三档判定——`stable` 不是 `main` 祖先（error）、待发布提交积压超过 7 天（warn）、最新 tag 没落到 stable 上（notice）。error/warn 会让 job 失败，并按与 `upstream-sync` 相同的三路告警（issue / Telegram / 运行失败邮件）。阈值可用 `workflow_dispatch` 的 `max_lag_days` 临时收紧。**这是「推送不再等于发布」之后唯一的兜底**：没有它，忘记打 tag 就等于客户端长期停在旧版本，而且无人察觉。
 
 ## 自动同步上游
 
@@ -122,26 +135,26 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
 
 ## 改这个项目时的坑
 
-- **图标基址指向本仓库，规则源基址仍指上游**：`Script/mihomoScript.js:161` 与 `Script/Script.js:139` 的 `iconBaseUrl` 由补丁 `brand-icons` 改成 `cdn.jsdmirror.com/gh/xinming7/MyClash@stable/Icons/svg/`（这样仓库里 80 个图标文件才真的被用到；改之前指向上游 `AIsouler/MyClash@main`，本地那份等于死重量）。**但 `Config/*.yaml` 两个静态配置里的图标 URL 仍写死 `AIsouler/MyClash@main/Icons/svg/...`**——它们是上游维护的样例配置，改 20 行会和上游的图标改动反复冲突，故有意不动；两侧图标不完全同步属已知差异。规则源基址在 `Script/mihomoScript.js:164` / `Script/Script.js:142`（`appshubcc/bett-rules@meta/geo/`），仍是上游的。
-- **完整版 / lite 版是两份脚本**：`Script/mihomoScript.js`（`function main(config)` 在 `Script/mihomoScript.js:1870`）与 `Script/Script.js`（`main` 在 `Script/Script.js:1451`）。改一处必须同步改另一处，否则两版行为分叉。
-- **下游消费 ruleset-builder 的产物**：完整版脚本从 `xinming7/ruleset-builder` 的 `rules` 分支拉取 4 份规则集（URL 全部走 `v6.gh-proxy.org` 前缀），在 `newConfig['rule-providers']` 里登记：`custom_proxy`（domain/`默认代理`）、`custom_direct`（domain/`直连`）、`custom_direct_ip`（**ipcidr**，规则带 `no-resolve`）、`custom_fakeip_filter`（domain，注册进 `dns.fake-ip-filter` 而非 `rules`）。这 4 个**不受任何开关控制、始终生效**。`ruleOptionsEnable.VG`（`Script/mihomoScript.js:64`）只控制三件事：家宽/CF 前置策略组的生成（`Script/mihomoScript.js:1218` 起）、`vgRegex` 与 `autoExcludeRegex` 的节点排除（`Script/mihomoScript.js:1045`、`:1283`）、`vgCfGroupNames` 注入。lite 版与两个 `Config/*.yaml` 完全没有这些引用。
-- **规则集下载域名必须走前置直连**：`prefixRules`（`Script/mihomoScript.js:69`）开头的 `DOMAIN,...,直连` 不是可有可无的优化，是防循环依赖的必需品。provider 下载时要走规则匹配，域名不在直连名单里就会命中 `MATCH,漏网之鱼` 走代理；节点不可用时所有规则集全部拉取失败（实测日志：`[TCP] dial 漏网之鱼 (match Match/) mihomo --> v6.gh-proxy.org:443 error: ... i/o timeout`）。当前已覆盖 `cdn.jsdmirror.com`、`v6.gh-proxy.org`、`gh-proxy.org`、`static-file-global.353355.xyz`（`Script/mihomoScript.js:72-75`）。**新增任何非 jsDelivr 的规则集源，必须同时把域名加进这个名单**，否则只在节点全挂时才暴露，极难排查。
-- **配置校验会被两件事打挂，`empty-fallback` 兜不住**：mihomo `-t` 阶段会拒绝 ①`rules` 里引用了未注册的 rule-provider（删 provider 时必须连规则一起删），②`select`/`url-test`/`load-balance` 组 `proxies` 为空数组（`empty-fallback: 'REJECT'` 只在运行时生效）。第 ① 条典型踩法：`GitHub` 开关关掉后 provider 不注册，但 Microsoft 组曾被误留在规则里（`Script/mihomoScript.js:497` 已修）。第 ② 条典型触发：VG 开启且订阅节点全部命中家宽/优选正则（`Script/mihomoScript.js:1311` 的空组回退兜底）。**验证方式**：`/opt/homebrew/bin/mihomo -d <tmpdir> -f <cfg.yaml> -t`。
+- **图标基址指向本仓库，规则源基址仍指上游**：两版脚本里的 `const iconBaseUrl` 由补丁 `brand-icons` 改成 `cdn.jsdmirror.com/gh/xinming7/MyClash@stable/Icons/svg/`（这样仓库里 80 个图标文件才真的被用到；改之前指向上游 `AIsouler/MyClash@main`，本地那份等于死重量）。**但 `Config/*.yaml` 两个静态配置里的图标 URL 仍写死 `AIsouler/MyClash@main/Icons/svg/...`**——它们是上游维护的样例配置，改 20 行会和上游的图标改动反复冲突，故有意不动；两侧图标不完全同步属已知差异。规则源基址由 `const ruleSetBaseUrl` 给出（两版同值 `appshubcc/bett-rules@meta/geo/`），仍是上游的。
+- **完整版 / lite 版是两份脚本**：`Script/mihomoScript.js` 与 `Script/Script.js`，各有自己的 `function main(config)`。改一处必须同步改另一处，否则两版行为分叉。
+- **下游消费 ruleset-builder 的产物**：完整版脚本从 `xinming7/ruleset-builder` 的 `rules` 分支拉取 4 份规则集（URL 全部走 `v6.gh-proxy.org` 前缀），在 `newConfig['rule-providers']` 里登记：`custom_proxy`（domain/`默认代理`）、`custom_direct`（domain/`直连`）、`custom_direct_ip`（**ipcidr**，规则带 `no-resolve`）、`custom_fakeip_filter`（domain，注册进 `dns.fake-ip-filter` 而非 `rules`）。这 4 个**不受任何开关控制、始终生效**。`ruleOptionsEnable.VG`（开关字段 `VG:`）只控制三件事：家宽/CF 前置策略组的生成（`buildFunctionalGroups` 里 `const vgCfGroups = []` 起的那段）、`vgRegex` 与 `autoExcludeRegex` 的节点排除（`Script/mihomoScript.js:1045`、`Script/mihomoScript.js:1283`）、`vgCfGroupNames` 注入。lite 版与两个 `Config/*.yaml` 完全没有这些引用。
+- **规则集下载域名必须走前置直连**：`prefixRules`（`const prefixRules = [`）开头的 `DOMAIN,...,直连` 不是可有可无的优化，是防循环依赖的必需品。provider 下载时要走规则匹配，域名不在直连名单里就会命中 `MATCH,漏网之鱼` 走代理；节点不可用时所有规则集全部拉取失败（实测日志：`[TCP] dial 漏网之鱼 (match Match/) mihomo --> v6.gh-proxy.org:443 error: ... i/o timeout`）。当前已覆盖 `cdn.jsdmirror.com`、`v6.gh-proxy.org`、`gh-proxy.org`、`static-file-global.353355.xyz`（`prefixRules` 里开头那 4 条 `DOMAIN,...,直连`）。**新增任何非 jsDelivr 的规则集源，必须同时把域名加进这个名单**，否则只在节点全挂时才暴露，极难排查。
+- **配置校验会被两件事打挂，`empty-fallback` 兜不住**：mihomo `-t` 阶段会拒绝 ①`rules` 里引用了未注册的 rule-provider（删 provider 时必须连规则一起删），②`select`/`url-test`/`load-balance` 组 `proxies` 为空数组（`empty-fallback: 'REJECT'` 只在运行时生效）。第 ① 条典型踩法：`GitHub` 开关关掉后 provider 不注册，但 Microsoft 组曾被误留在规则里（`name: 'Microsoft'` 的规则已删）。第 ② 条典型触发：VG 开启且订阅节点全部命中家宽/优选正则（`if (svc.includeAll && groupProxies.length === 0)` 的空组回退兜底）。**验证方式**：`/opt/homebrew/bin/mihomo -d <tmpdir> -f <cfg.yaml> -t`。
 - **同步上游时不能只 diff 一个文件**：上游经常一个提交同时改 `Script/mihomoScript.js`、`Script/Script.js`、`Config/mihomoConfig.yaml`、`Config/mihomoConfigLite.yaml`。2026-10 就漏过一次：上游 `badd718b`「显式定义规则集下载域名规则，避免出现鸡蛋问题」四个文件各 +3 行（在两处 `prefixRules` 与两处 YAML `rules:` 段首插入 `DOMAIN,cdn.jsdmirror.com,直连`），本 fork 当时只 diff 了全量版脚本，整条漏掉，两天后才发现。**正确做法**：先 `curl -s "https://api.github.com/repos/AIsouler/MyClash/commits?per_page=20"` 列出上游提交，再对可疑提交取 `commits/<sha>` 看 `files` 数组，逐个文件核对，而不是只看 `Script/mihomoScript.js`。现在可直接 `node Tools/sync-upstream.js compare --fetch`，它会打印上游每个提交改到的文件并标出 `[改脚本]`。
 - **fork 仓库的 Issues 默认是关闭的，issue 告警会稳定失败**：GitHub 对 fork 出来的仓库把 `has_issues` 设为 `false`，此时 `gh issue create` 报 `the '<owner>/<repo>' repository has disabled issues`。2026-10 排查时先误判成 `gh` 按 remote 猜错仓库（那个问题真实存在，已修），其实根因是功能没开。现已启用，workflow 也加了 `has_issues` 探测：未启用时跳过并给 notice，不刷无意义警告。**排查同类问题时先查 `gh api repos/<owner>/<repo> --jq .has_issues`，别急着怀疑权限。**
 - **workflow 里 `$变量` 后面紧跟中文会把中文并进变量名**：`echo "fail=$fail（应为 1）"` 在 bash 下会去找名为 `fail（` 的变量，展开为空。写带中文的日志时务必用 `${VAR}` 花括号形式，或让变量后跟空格/标点。同理，`if "$BIN" ... -t | tail -1; then` 的退出码是 `tail` 的而非内核的——**校验类命令绝不能接管道后判 `if`**，否则校验形同虚设。
 - **上游「删代码」的提交最阴险：声明被自动合并删掉，而使用点还在**。2026-10 同步上游 `cf3d3f6a`（移除链式代理）时，`链式代理` 开关、`dialerProxyName`、`const chainEnabled`、`const chainGroup` 这些**声明行**在无冲突的情况下被自动删除，而冲突区里保留下来的 `chainEnabled` / `chainGroup` **使用点**还在，于是报 `chainEnabled is not defined` / `chainGroup is not defined`。精简版更隐蔽：`链式代理` 开关被删后，默认值恰好都是 falsy，功能测试仍然全绿，只有 `node Tools/sync-upstream.js compare` 才看得出缺参。**结论**：删功能的提交必须把「声明」和「使用」成对核对，别只看冲突标记。**后续**：上游 `e0eb0da`（2026-11-03）又把链式代理整体恢复了，所以现在这套代码是上游原生的；本 fork 原有的「`dialer-proxy` 只补不覆盖」语义补丁已于同日删除，链式代理完全跟随上游（见下一条）。
-- **本 fork 有意偏离上游的地方**（同步时别顺手改回去）：`生成倍率组` 默认 `false`（上游 `true`，**仅全量版**，精简版保持上游的 `true`）；新增 VG 家宽功能（`vgRegex`、`autoExcludeRegex`、`vgCfGroups`，**仅全量版**），其中 `vgCfGroupNames`（`Script/mihomoScript.js:1262` `默认代理`、`:1292`/`:1300` 分流组、`:1327` `漏网之鱼`、`:1344` GLOBAL）**有意注入所有分流策略组**，便于把家宽节点作为任意分流目标，不是遗漏；自动选择组里「自动选择」排在 `proxies` 首位（上游排末位，**仅全量版**）；精简版额外补了上游只给全量版的 `GitHub` 分流组。**链式代理已不在偏离清单里**：2026-11-03 起完全跟随上游，连 `dialer-proxy` 语义也不改（上游会覆盖用户已有值、且关闭后不清洗悬空引用，这两点作为已知限制记录在 README）。
+- **本 fork 有意偏离上游的地方**（同步时别顺手改回去）：`生成倍率组` 默认 `false`（上游 `true`，**仅全量版**，精简版保持上游的 `true`）；新增 VG 家宽功能（`vgRegex`、`autoExcludeRegex`、`vgCfGroups`，**仅全量版**），其中 `vgCfGroupNames`（`Script/mihomoScript.js:1262` `默认代理`、`Script/mihomoScript.js:1292` / `Script/mihomoScript.js:1300` 分流组、`Script/mihomoScript.js:1327` `漏网之鱼`、`Script/mihomoScript.js:1344` GLOBAL）**有意注入所有分流策略组**，便于把家宽节点作为任意分流目标，不是遗漏；自动选择组里「自动选择」排在 `proxies` 首位（上游排末位，**仅全量版**）；精简版额外补了上游只给全量版的 `GitHub` 分流组。**链式代理已不在偏离清单里**：2026-11-03 起完全跟随上游，连 `dialer-proxy` 语义也不改（上游会覆盖用户已有值、且关闭后不清洗悬空引用，这两点作为已知限制记录在 README）。
 - **上游家宽节点组与本 fork VG 家宽是两套语义，别合并**：上游 `d906c45` 的「家宽节点」组用关键词归类（`homeRegionDefinitions` 正则 `家宽|住宅|原生\s*IP|家庭宽带|ISP|RES|residential`），受 `生成家宽节点组` 开关控制；本 fork 的 `VG家宽` / `🏠 家宽自动` 只认 `vgRegex` 的 `🏠 XX-家宽-NN` 固定格式，受 `VG` 开关控制。两者靠「VG 开启时 `buildRegionGroups` 先跳过 VG 节点」保证不重复收录（`Test/suites/integration.js` 有对应用例锁定）。**改任意一边都要先跑这两条用例**。
 - **`Tools/sync-upstream.js` 的特性清单是唯一真源**：新增 fork 特性时改 `Tools/lib/feature-manifest.js`，不要只手改脚本——否则下次同步会被上游覆盖。判断注入器是否还准确的方法：把两个脚本临时换成 `git show upstream/main:Script/xxx.js` 后跑 `apply`，结果应与当前合并后的脚本**逐字节一致**（2026-10 实测两版 diff 均为 0）。
-- **VG 开关的职责边界是收敛过的，别再把无关东西塞进去**：2026-10 做过一次收敛——`custom_proxy` / `custom_direct` 曾和 VG 绑在同一个三元表达式里（关 VG 就整条规则消失），现已解绑为独立「ruleset-builder 自定义规则集」块；`vgRegex` / `autoExcludeRegex` 的节点排除也加了 VG 门控（`Script/mihomoScript.js:1045`、`:1283`），否则关闭 VG 时家宽/优选节点会从所有策略组里凭空消失。判断标准：**VG 只管家宽与 CF 前置相关的东西**；自定义规则集、地区组归属、通用节点过滤都与家宽无关，不该受它控制。
-- **空占位必须用户自填**：`Config/mihomoConfig.yaml:29` 的 `url` 与 `:30` 的 `age-secret-key` 是空串占位（`Config/mihomoConfigLite.yaml:29-30` 同样），分别填机场订阅链接与解密私钥；仓库内没有任何已提交的订阅或密钥。
+- **VG 开关的职责边界是收敛过的，别再把无关东西塞进去**：2026-10 做过一次收敛——`custom_proxy` / `custom_direct` 曾和 VG 绑在同一个三元表达式里（关 VG 就整条规则消失），现已解绑为独立「ruleset-builder 自定义规则集」块；`vgRegex` / `autoExcludeRegex` 的节点排除也加了 VG 门控（`Script/mihomoScript.js:1045`、`Script/mihomoScript.js:1283`），否则关闭 VG 时家宽/优选节点会从所有策略组里凭空消失。判断标准：**VG 只管家宽与 CF 前置相关的东西**；自定义规则集、地区组归属、通用节点过滤都与家宽无关，不该受它控制。
+- **空占位必须用户自填**：两个 `Config/*.yaml` 的 `provider1:` 下，`url` 与 `age-secret-key` 都是空串占位，分别填机场订阅链接与解密私钥；仓库内没有任何已提交的订阅或密钥。
 - **改了不 push 等于没改，push 了不发布也等于没改**：jsDelivr 与 raw URL 都按分支/提交取内容。脚本与配置走 `@stable`，图标走 `@stable` 的 `Icons/svg/`；只推 `main` 时客户端拿到的仍是上一个 `stable` 提交。发布动作见「分发与发布」一节。
 - **测试依赖不装会静默跳过**：`Test/package.json` 的 devDeps（`espree@^9.6.1`、`quickjs-emscripten@^0.32.0`）缺失时，ES2020/QuickJS 检查直接略过，看起来仍然"通过"。
-- **静默跳过的第二种形态：依赖装了但损坏**。`Test/lib/es2020-check.js:45` 的 `tryLoadEspree()` 只在 `e.code === 'MODULE_NOT_FOUND'` 时返回 `null`（跳过），但 `require('espree')` 依赖链里任意一个包损坏同样抛 `MODULE_NOT_FOUND`，表现仍是"已跳过"而非报错。实测过一次：`Test/node_modules/eslint-visitor-keys/dist/` 是空目录（缺 `eslint-visitor-keys.cjs`），ES2020 检查全程跳过、`--es2020` 单独跑还打印"全部测试通过 ✅"。**看到"未安装 espree 依赖，已跳过"时先核对依赖是否真完整**：`ls Test/node_modules/eslint-visitor-keys/dist/` 应有 `eslint-visitor-keys.cjs`；不可信就 `rm -rf Test/node_modules && npm --prefix Test install` 重装（别删 `Test/package-lock.json`）。
+- **静默跳过的第二种形态：依赖装了但损坏**。`Test/lib/es2020-check.js` 的 `tryLoadEspree()` 只在 `e.code === 'MODULE_NOT_FOUND'` 时返回 `null`（跳过），但 `require('espree')` 依赖链里任意一个包损坏同样抛 `MODULE_NOT_FOUND`，表现仍是"已跳过"而非报错。实测过一次：`Test/node_modules/eslint-visitor-keys/dist/` 是空目录（缺 `eslint-visitor-keys.cjs`），ES2020 检查全程跳过、`--es2020` 单独跑还打印"全部测试通过 ✅"。**看到"未安装 espree 依赖，已跳过"时先核对依赖是否真完整**：`ls Test/node_modules/eslint-visitor-keys/dist/` 应有 `eslint-visitor-keys.cjs`；不可信就 `rm -rf Test/node_modules && npm --prefix Test install` 重装（别删 `Test/package-lock.json`）。
 - **`Test/package-lock.json` 用 npm 11 安装会多一行**：`npm --prefix Test install` 后 `git status` 会出现该文件的 `M`（1 行变更，lockfileVersion 相关）。提交前用 `git checkout -- Test/package-lock.json` 还原，不要混进功能提交。
 - **npm 全局缓存不可写**：`~/.npm` 属主不是当前用户，直接 `npm install` / `npx` 会报 `sudo chown -R 501:20 "/Users/liujiaming/.npm"` 并失败。加 `--cache /tmp/npm-cache`（或 `npm_config_cache=/tmp/npm-cache npx ...`）绕过，不要照提示去 sudo chown。
-- **`buildFunctionalGroups()` 的返回值与 `main()` 的解构要保持对齐，但极简模式已不再靠「伪造字段」兜底**：全量版 `buildFunctionalGroups` 在 `Script/mihomoScript.js:1361` 返回 8 个字段（含 `vgCfGroups`），`main()` 在 `Script/mihomoScript.js:1883` 解构同一组字段，并给 `vgCfGroups` 写了 `= []` 默认值（`Script/mihomoScript.js:1891`）。**为什么改成默认值**：2026-10 曾因极简模式分支漏返回 `vgCfGroups` 报 `TypeError: vgCfGroups is not iterable`，当时靠给极简分支补 `vgCfGroups: []` 修好，但那条补丁每次都得上游返回值中间去找锚点，2026-11-03 同步时正好被上游新增的 `chainGroup` 挤掉。现在由解构默认值兜住，极简模式不必再返回该字段，**新增提前 `return` 分支时也不用同步补齐**；代价是「字段漏返回」不再报错，所以必须靠集成测试断言组真的生成出来（`Test/suites/integration.js` 的「极简模式 + VG」与「VG 与链式代理互不吞噬」两条）。
+- **`buildFunctionalGroups()` 的返回值与 `main()` 的解构要保持对齐，但极简模式已不再靠「伪造字段」兜底**：全量版 `buildFunctionalGroups` 返回 8 个字段（末项是 `vgCfGroups,`），`main()` 解构同一组字段，并给 `vgCfGroups` 写了 `= []` 默认值。**为什么改成默认值**：2026-10 曾因极简模式分支漏返回 `vgCfGroups` 报 `TypeError: vgCfGroups is not iterable`，当时靠给极简分支补 `vgCfGroups: []` 修好，但那条补丁每次都得上游返回值中间去找锚点，2026-11-03 同步时正好被上游新增的 `chainGroup` 挤掉。现在由解构默认值兜住，极简模式不必再返回该字段，**新增提前 `return` 分支时也不用同步补齐**；代价是「字段漏返回」不再报错，所以必须靠集成测试断言组真的生成出来（`Test/suites/integration.js` 的「极简模式 + VG」与「VG 与链式代理互不吞噬」两条）。
 
 - **补丁锚点别绑上游会改的业务内容，要绑稳定结构**：`anchor` 匹配的是**上游原版**里的连续行，上游一动那段代码锚点就失效。2026-11-01 就踩了：lite 版补 GitHub 分流组的补丁 `lite-github-service` 把 `rules: ['RULE-SET,ai,AI'],` 当锚点，上游 `170f615`「补充 Claude 第三方组件域名」把它改成了多行数组，同步直接失败。这个失败很阴险：**merge 无冲突 → `apply` 报「注入 0 处」→ `verify` 全绿**（`marker: /name: 'GitHub',/` 命中就 `skipped`，根本不校验锚点），只有 `replay` 才报「锚点未找到」。**别把 `verify` 通过当成锚点没问题的证据。** 修法是换锚点：现改为锚 Telegram 组开头 `['  {', "    name: 'Telegram',"]` + `insertBefore`，插入位置不变，但不再受 AI 组规则变化牵连。**新写补丁时优先锚注释、组名、`const` 声明，不要锚规则数组、开关默认值这类上游常动量。**
 

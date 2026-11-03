@@ -1,0 +1,163 @@
+name: release
+
+# 把 tag 指向的提交快进到 stable —— 客户端只拉 stable，所以这一步才是「真正发布」。
+#
+# 为什么不做成 upstream-sync 的一部分：main 每天都会被上游同步推进，若顺带自动更新 stable，
+# 上游任何行为变更都会当天直达所有客户端，没有一个「这次可以发」的人工决定。打 tag 就是那个决定。
+#
+# 语义约束：
+#  - 只接受 vX.Y.Z 正式 tag；带 `-` 的预发布（v1.7.1-rc1）只跑构建性检查之外的跳过分支，不动 stable；
+#  - 只做快进（fast-forward）。stable 不是目标提交的祖先时直接失败并给出回滚说明，绝不强推——
+#    强推只允许出现在「客户端已经吃到坏版本、必须回退」这种人工场景里，由人手动执行。
+
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '要发布的引用（tag / 分支 / commit）'
+        required: true
+        default: 'main'
+      dry_run:
+        description: '只校验不推送'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DRY_RUN: ${{ inputs.dry_run || false }}
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: 解析目标引用
+        id: target
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            REF="${GITHUB_REF_NAME}"
+            # 预发布 tag 不打到 stable：只有纯 vX.Y.Z 才算「可发布」
+            if [[ "${REF}" == *-* ]]; then
+              echo "skip=1" >> "$GITHUB_OUTPUT"
+              echo "::notice::${REF} 是预发布 tag（含 -），跳过 stable 快进"
+              exit 0
+            fi
+            if [[ ! "${REF}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::tag 不符合 vX.Y.Z 形式：${REF}"
+              exit 1
+            fi
+          else
+            REF="${{ inputs.ref }}"
+          fi
+
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+          echo "目标引用：${REF}"
+
+      # checkout 在 tag 事件下只保证拿到该 tag 的提交；stable 与 main 需要显式拉取
+      - name: 拉取分支与 tag
+        if: steps.target.outputs.skip != '1'
+        run: git fetch origin --tags '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: 校验是否为快进
+        id: check
+        if: steps.target.outputs.skip != '1'
+        run: |
+          set -euo pipefail
+
+          TARGET=$(git rev-parse --verify "${{ steps.target.outputs.ref }}^{commit}")
+          echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
+          echo "目标提交：${TARGET}"
+
+          # 允许发布「回退用」的旧 tag（它是 main 的祖先），但目标不在 main 历史里时提醒一句，
+          # 常见于把 tag 打在了废弃分支上——这类发布会把未进入主干的内容推给所有客户端
+          if git merge-base --is-ancestor "${TARGET}" origin/main; then
+            echo "::notice::目标提交在 main 历史中"
+          else
+            echo "::warning::目标提交不在 main 历史中，确认这不是误打在其它分支上的 tag"
+          fi
+
+          if git rev-parse --verify --quiet origin/stable >/dev/null; then
+            if git merge-base --is-ancestor origin/stable "${TARGET}"; then
+              BEHIND=$(git rev-list --count origin/stable.."${TARGET}")
+              echo "::notice::origin/stable 落后 ${BEHIND} 个提交，可快进到 ${TARGET:0:7}"
+            else
+              echo "::error::origin/stable 不是 ${{ steps.target.outputs.ref }} 的祖先，拒绝非快进发布"
+              echo "::error::这通常意味着 stable 曾被强推回滚过。先确认 stable 上的提交是否还需要保留："
+              echo "::error::  git log --oneline origin/main..origin/stable"
+              echo "::error::确需覆盖时手工执行（不可逆）：git push --force-with-lease origin ${TARGET}:stable"
+              exit 1
+            fi
+          else
+            echo "::notice::origin/stable 不存在，本次将创建"
+          fi
+
+      - name: 快进 stable
+        if: steps.target.outputs.skip != '1'
+        run: |
+          set -euo pipefail
+          TARGET="${{ steps.check.outputs.target }}"
+
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "::notice::dry_run 已开启，跳过推送。将执行：git push origin ${TARGET}:stable"
+            git log --oneline origin/stable.."${TARGET}" || true
+            exit 0
+          fi
+
+          # 非快进会被服务端拒绝，这是预期护栏；失败就说明并发有人动过 stable
+          if ! git push origin "${TARGET}:stable"; then
+            echo "::error::推送 stable 失败。常见原因：stable 被并发修改（重跑本 workflow 即可），或分支保护拒绝了非快进更新"
+            exit 1
+          fi
+
+      - name: 确认远端 stable 指向
+        if: steps.target.outputs.skip != '1'
+        run: |
+          set -euo pipefail
+          TARGET="${{ steps.check.outputs.target }}"
+
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "::notice::dry_run，跳过远端确认"
+            exit 0
+          fi
+
+          REMOTE=$(git ls-remote origin refs/heads/stable | cut -f1)
+          echo "远端 stable = ${REMOTE}"
+          if [ "${REMOTE}" != "${TARGET}" ]; then
+            echo "::error::远端 stable（${REMOTE}）与目标提交（${TARGET}）不一致"
+            exit 1
+          fi
+          echo "::notice::stable 已指向 ${TARGET:0:7}，客户端下次更新即可拿到"
+
+      - name: 结果摘要
+        if: always()
+        run: |
+          {
+            echo "### release"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 触发 | \`${GITHUB_EVENT_NAME}\` |"
+            echo "| 目标引用 | \`${{ steps.target.outputs.ref || '(跳过)' }}\` |"
+            echo "| 目标提交 | \`${{ steps.check.outputs.target || '-' }}\` |"
+            echo "| 观察模式 | ${DRY_RUN} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ steps.target.outputs.skip }}" = "1" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "预发布 tag，未改动 stable。" >> "$GITHUB_STEP_SUMMARY"
+          fi

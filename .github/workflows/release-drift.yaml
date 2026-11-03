@@ -1,0 +1,130 @@
+name: release-drift
+
+# 每天检查 stable 是否落后于 main —— 这是「分发切到 stable」之后新增的唯一失效模式：
+# 上游每天自动同步到 main，但没人打 tag，stable 就停在旧代码上，而且没有任何地方会报错。
+#
+# 判定逻辑在 Tools/check-release-drift.js 里（可本地跑），这里只负责定时 + 告警。
+# 阈值默认 7 天：一周内没发布属正常开发节奏，超过就说明「该发了」被遗忘了。
+
+on:
+  schedule:
+    # 每天 21:00 UTC = 次日 05:00 (UTC+8)，排在 upstream-sync（20:00 UTC）之后，
+    # 这样当天同步进来的提交也会被算进待发布数量
+    - cron: '0 21 * * *'
+  workflow_dispatch:
+    inputs:
+      max_lag_days:
+        description: '允许积压的天数（超过则告警）'
+        required: false
+        default: '7'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: release-drift
+  cancel-in-progress: true
+
+env:
+  MAX_LAG_DAYS: ${{ inputs.max_lag_days || '7' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: 拉取分支与 tag
+        run: git fetch origin --tags '+refs/heads/*:refs/remotes/origin/*'
+
+      # continue-on-error：让后续的告警与摘要步骤一定能跑到，最终结论由 job 失败体现
+      - name: 检查发布漂移
+        id: drift
+        continue-on-error: true
+        run: node Tools/check-release-drift.js --max-lag-days "${MAX_LAG_DAYS}"
+
+      - name: 结果摘要
+        if: always()
+        run: |
+          STATUS="${{ steps.drift.outcome == 'success' && '无积压问题' || '需要发布或人工确认' }}"
+          {
+            echo "### release-drift"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 结论 | ${STATUS} |"
+            echo "| 阈值 | ${MAX_LAG_DAYS} 天 |"
+            echo ""
+            echo '```'
+            echo "远端 stable（客户端拉取的就是它）落后于 main 时，客户端仍停留在旧版本。"
+            echo "发布方式：git tag -a vX.Y.Z && git push origin vX.Y.Z（release workflow 自动快进 stable）。"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 失败告警
+        if: steps.drift.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          BODY=$(cat <<EOF
+          stable 落后于 main，超过 ${MAX_LAG_DAYS} 天未发布，或者两边已分叉。
+
+          - 运行记录：${RUN_URL}
+          - 触发：${GITHUB_EVENT_NAME}
+
+          ## 处理
+
+          \`\`\`bash
+          git fetch origin --tags
+          node Tools/check-release-drift.js          # 看清具体结论
+          \`\`\`
+
+          - **只是积压**：按 AGENTS.md「分发与发布」打 tag，release workflow 会自动把 stable 快进过去。
+          - **\`stable 不是 main 的祖先\`**：stable 曾被强推回滚，需人工判断保留哪一侧，脚本不会自动合并。
+          EOF
+          )
+
+          # 与 upstream-sync 一致：仓库未启用 Issues 时不要打出无意义的失败
+          if [ "$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.has_issues' 2>/dev/null || echo false)" = "true" ]; then
+            EXISTING=$(gh issue list --repo "${GITHUB_REPOSITORY}" --label release-drift --state open --json number --jq '.[0].number' 2>/dev/null || true)
+            if [ -n "${EXISTING}" ]; then
+              gh issue comment "${EXISTING}" --repo "${GITHUB_REPOSITORY}" --body "${BODY}" || echo "⚠️ 追加评论失败，请直接看运行记录"
+            else
+              gh issue create --repo "${GITHUB_REPOSITORY}" --title "release-drift：stable 需要发布" --body "${BODY}" --label release-drift \
+                || gh issue create --repo "${GITHUB_REPOSITORY}" --title "release-drift：stable 需要发布" --body "${BODY}" \
+                || echo "⚠️ 创建 issue 失败，请直接看运行记录"
+            fi
+          else
+            echo "::notice::仓库未启用 Issues，跳过 issue 告警（Telegram 与运行失败邮件仍会送达）"
+          fi
+
+          if [ -n "${TELEGRAM_BOT_TOKEN}" ] && [ -n "${TELEGRAM_CHAT_ID}" ]; then
+            TEXT=$(printf '⚠️ MyClash 发布漂移\nstable 落后 main 超过 %s 天，或两边已分叉。\n客户端仍停留在旧版本。\n\n运行记录：%s' \
+              "${MAX_LAG_DAYS}" "${RUN_URL}")
+            if curl -fsS --retry 2 --retry-delay 2 -X POST \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=${TEXT}" \
+              -o /dev/null; then
+              echo "Telegram 已通知"
+            else
+              echo "::warning::Telegram 推送失败，请查看 issue 或运行记录"
+            fi
+          else
+            echo "未配置 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID，跳过 Telegram 通知"
+          fi
+
+      - name: 让 job 按检查结果失败
+        if: steps.drift.outcome == 'failure'
+        run: |
+          echo "::error::发布漂移检查未通过，见上一步输出"
+          exit 1

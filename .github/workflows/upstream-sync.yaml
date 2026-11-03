@@ -8,8 +8,9 @@ name: upstream-sync
 #     而是取上游侧后重新注入（L1 重建）；重建结果由 replay 逐字节校验。
 #  3. 任一环节失败都开 issue 告警，并让 job 失败（GitHub 也会发邮件）。
 #
-# 注意：分发走 raw.githubusercontent.com/.../main/...，推送 main 等于立刻发布给所有客户端，
-# 因此校验顺序不可省。需要观察期时用 workflow_dispatch 勾选 dry_run。
+# 注意：客户端拉的是 `stable` 分支，本 workflow 只推 `main`，所以同步本身不影响任何客户端——
+# 真正对外发布的是打 tag 触发的 release workflow。但校验顺序仍不可省：main 上的东西迟早会被
+# 发布出去。需要观察期时用 workflow_dispatch 勾选 dry_run。
 
 on:
   schedule:
