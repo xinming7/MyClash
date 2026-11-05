@@ -307,8 +307,16 @@ function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
       }
     }),
   );
-  h.test('GitHub 开关开启 → 生成 GitHub 组与对应 provider/规则', () => {
+  h.test('GitHub 开关开启 → 全量版生成 GitHub 组与对应 provider/规则', () => {
     const out = api.main(fx.typicalSubscription());
+    if (!isFull) {
+      // 2026-11-05 起精简版完全跟随上游：上游精简版本来就没有 GitHub 分流组，本 fork 不再补齐。
+      // 想要 GitHub 分流请用全量版 Script/mihomoScript.js。
+      h.assert(!groupByName(out['proxy-groups'], 'GitHub'), '精简版不应生成 GitHub 组');
+      h.assert(!out['rule-providers'].github, '精简版不应注册 github provider');
+      h.assert(!out.rules.includes('RULE-SET,github,GitHub'), '精简版不应有指向 GitHub 的规则');
+      return;
+    }
     h.assert(groupByName(out['proxy-groups'], 'GitHub'), '应生成 GitHub 组');
     h.assert(out['rule-providers'].github, '应注册 github provider');
     h.assert(out.rules.includes('RULE-SET,github,GitHub'), '应生成指向 GitHub 组的规则');

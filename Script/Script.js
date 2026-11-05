@@ -23,7 +23,6 @@ const ruleOptionsEnable = {
 
   // 以下为分流策略配置
   Google: true, // Google服务
-  GitHub: true, // GitHub代码托管平台
   AI: true, // 国外AI服务
   Telegram: true, // Telegram通讯软件
   Steam: true, // Steam游戏平台
@@ -39,7 +38,7 @@ const ruleOptionsEnable = {
   过滤低倍率节点: false, // 是否过滤低倍率节点
   过滤高倍率节点: false, // 是否过滤高倍率节点
   过滤非地区节点: true, // 是否过滤非地区节点
-  屏蔽国外QUIC: false, // 是否屏蔽国外QUIC流量
+  屏蔽国外QUIC: true, // 是否屏蔽国外QUIC流量（本 fork 默认开启）
   代理IPV4优先: false, // 是否将订阅节点统一为 IPv4 优先（与“代理IPV6优先”同时开启时不生效）
   代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）
   链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经“链式中转”策略组中转）
@@ -136,7 +135,7 @@ const directProxies = [
 ];
 
 // 图标 URL 公共前缀
-const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/xinming7/MyClash@stable/Icons/svg/';
+const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/AIsouler/MyClash@main/Icons/svg/';
 
 // 规则集 URL 公共前缀
 const ruleSetBaseUrl = 'https://cdn.jsdmirror.com/gh/appshubcc/bett-rules@meta/geo/';
@@ -392,20 +391,6 @@ const serviceConfigs = [
       'DOMAIN-SUFFIX,intercom.io,AI',
       'DOMAIN-SUFFIX,intercomcdn.com,AI',
     ],
-  },
-  {
-    name: 'GitHub',
-    baseOption: selectBaseOption,
-    providers: {
-      github: {
-        ...ruleProviderCommonDomain,
-        url: `${ruleSetBaseUrl}geosite/github.mrs`,
-        path: './ruleset/github.mrs',
-        'path-in-bundle': 'geo/geosite/github.mrs',
-      },
-    },
-    icon: `${iconBaseUrl}GitHub.svg`,
-    rules: ['RULE-SET,github,GitHub'],
   },
   {
     name: 'Telegram',

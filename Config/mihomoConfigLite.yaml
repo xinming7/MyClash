@@ -495,8 +495,8 @@ rules:
   - DOMAIN,international-gfe.download.nvidia.com,直连
   - DOMAIN-SUFFIX,ctaiot.com,直连
 
-  # 禁用国外 QUIC 流量（默认不启用，如果想启用请删除前面的#号注释）
-  # - AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((OR,((RULE-SET,cn),(RULE-SET,cn_ip,no-resolve)))))),REJECT
+  # 禁用国外 QUIC 流量（本 fork 默认启用；不想启用请在前面的 - 前加 # 注释掉）
+  - AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((OR,((RULE-SET,cn),(RULE-SET,cn_ip,no-resolve)))))),REJECT
 
   # 广告拦截
   - RULE-SET,category-ads,AdBlock

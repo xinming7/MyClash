@@ -17,7 +17,7 @@
 const FEATURES = [
   {
     id: 'brand',
-    title: '脚本头部作者、源仓库与图标基址指向本 fork',
+    title: '脚本头部作者与源仓库指向本 fork',
     patches: [
       {
         id: 'brand-header',
@@ -53,14 +53,10 @@ const FEATURES = [
           ' * 脚本链接：https://raw.githubusercontent.com/xinming7/MyClash/refs/heads/stable/Script/Script.js',
         ].join('\n'),
       },
-      {
-        id: 'brand-icons',
-        why: '图标基址原指向上游 AIsouler 仓库（本仓库内 80 个图标文件等于没用上）；改指本仓库后图标自持，不再依赖上游仓库存在',
-        marker: /gh\/xinming7\/MyClash@stable\/Icons\/svg\//,
-        op: 'replace',
-        anchor: "const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/AIsouler/MyClash@main/Icons/svg/';",
-        text: "const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/xinming7/MyClash@stable/Icons/svg/';",
-      },
+      // 图标基址有意不动：2026-11-05 起跟随上游 `AIsouler/MyClash@main/Icons/svg/`。
+      // 曾有一条 `brand-icons` 补丁把它改指本仓库 @stable（图标自持），已按需求移除；
+      // 仓库内的 Icons/ 目录仍保留（与上游同路径，删掉反而会造出 modify/delete 合并冲突），
+      // 只是脚本不再引用——`Config/*.yaml` 两个静态配置一直用的就是上游地址。
     ],
   },
 
@@ -76,6 +72,21 @@ const FEATURES = [
         op: 'replace',
         anchor: '  生成倍率组: true, // 是否生成低倍率/高倍率策略组',
         text: '  生成倍率组: false, // 是否生成低倍率/高倍率策略组（本 fork 默认关闭）',
+      },
+    ],
+  },
+
+  {
+    id: 'quic-default-on',
+    title: '「屏蔽国外QUIC」默认开启（两版）',
+    patches: [
+      {
+        id: 'quic-default-on',
+        why: '上游 2026-11-05 把默认值从 true 改成 false；本 fork 仍默认屏蔽（QUIC 走 UDP 易被限速/污染，屏蔽后回落到 TCP 更稳），规则实现跟随上游不改',
+        marker: /屏蔽国外QUIC: true,/,
+        op: 'replace',
+        anchor: '  屏蔽国外QUIC: false, // 是否屏蔽国外QUIC流量',
+        text: '  屏蔽国外QUIC: true, // 是否屏蔽国外QUIC流量（本 fork 默认开启）',
       },
     ],
   },
@@ -204,44 +215,10 @@ const FEATURES = [
     ],
   },
 
-  {
-    id: 'lite-github-group',
-    title: '精简版补齐 GitHub 分流组',
-    only: 'lite',
-    patches: [
-      {
-        id: 'lite-github-switch',
-        why: '上游只在全量版加了 GitHub 开关，精简版需补齐才能生成对应分流组',
-        marker: /^\s*GitHub: true,/m,
-        op: 'insertAfter',
-        anchor: '  Google: true, // Google服务',
-        text: '  GitHub: true, // GitHub代码托管平台',
-      },
-      {
-        id: 'lite-github-service',
-        why: 'GitHub 分流组定义（provider + 规则）；锚点取 Telegram 组开头，避开上游调整 AI 组 rules 时失效',
-        marker: /name: 'GitHub',/,
-        op: 'insertBefore',
-        anchor: ['  {', "    name: 'Telegram',"],
-        text: [
-          '  {',
-          "    name: 'GitHub',",
-          '    baseOption: selectBaseOption,',
-          '    providers: {',
-          '      github: {',
-          '        ...ruleProviderCommonDomain,',
-          '        url: `${ruleSetBaseUrl}geosite/github.mrs`,',
-          "        path: './ruleset/github.mrs',",
-          "        'path-in-bundle': 'geo/geosite/github.mrs',",
-          '      },',
-          '    },',
-          '    icon: `${iconBaseUrl}GitHub.svg`,',
-          "    rules: ['RULE-SET,github,GitHub'],",
-          '  },',
-        ].join('\n'),
-      },
-    ],
-  },
+  // 精简版的 GitHub 分流组已于 2026-11-05 按需求移除：精简版完全跟随上游，没有该组。
+  // 上游只在自己的全量版提供 `GitHub` 开关与分流组，精简版本来就没有——
+  // 之前用 `lite-github-switch` / `lite-github-service` 补齐，现在不再补。
+  // 想让精简版也有 GitHub 分流，请改用全量版 `Script/mihomoScript.js`。
 
   {
     id: 'vg-region-filter',

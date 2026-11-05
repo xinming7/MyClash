@@ -21,19 +21,19 @@
 
 ## 本 Fork 的改动
 
-本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)。改动集中在全量版脚本 `Script/mihomoScript.js`；精简版脚本 `Script/Script.js` 已同步 `GitHub` 策略组与自定义规则集，但不含 VG 家宽等全量版独有功能。链式代理两版都由上游提供，本 fork 不做任何改动。
+本仓库 fork 自 [AIsouler/MyClash](https://github.com/AIsouler/MyClash)。改动集中在全量版脚本 `Script/mihomoScript.js`；精简版脚本 `Script/Script.js` 只额外接入自定义规则集与「屏蔽国外QUIC」默认值，其余（含 `GitHub` 分流组）完全跟随上游。链式代理两版都由上游提供，本 fork 不做任何改动。
 
-- **新增 `GitHub` 分流策略组**：为 GitHub 域名单独分流，图标复用上游 GitHub 图标（全量版与精简版均已支持）
+- **`GitHub` 分流策略组跟随上游**：该组由上游提供，且**只有全量版有**。本 fork 自 2026-11-05 起不再为精简版补齐——精简版没有 `GitHub` 组，需要请在 Bettbox 里切换到全量版脚本
 - **同步上游增强**：零宽/不可见字符节点名匹配、公共 DNS 过滤项扩充（全量版与精简版均已同步）
-- **同步上游规则修复**：补回 `DOMAIN,cdn.jsdmirror.com,直连` 前置规则（避免规则集下载的鸡蛋问题），移除「圣地亚哥」地区匹配词；`屏蔽国外QUIC` 改用 `RULE-SET,cn` + `cn_ip` 判定，且**默认值改为关闭**（上游 2026-11-05，需要屏蔽请在 Bettbox 里手动打开）
+- **同步上游规则修复**：补回 `DOMAIN,cdn.jsdmirror.com,直连` 前置规则（避免规则集下载的鸡蛋问题），移除「圣地亚哥」地区匹配词；`屏蔽国外QUIC` 改用 `RULE-SET,cn` + `cn_ip` 判定（上游 2026-11-05）
+- **`屏蔽国外QUIC` 默认开启**：上游 2026-11-05 把默认值从 `true` 改成 `false`，本 fork 两版脚本都**保持默认开启**（QUIC 走 UDP，屏蔽后回落 TCP 通常更稳），两个静态 `Config/*.yaml` 里那条规则也已取消注释。不想要可在 Bettbox 里关掉（静态配置则手动注释该行），规则实现本身完全跟随上游
 - **同步上游 DNS 调整**：`fake-ip-filter` 里的 `rule-set:geolocation-cn` 换成 `rule-set:cn`（上游 2026-11-05），本 fork 的自定义过滤集 `custom_fakeip_filter` 仍注册在该数组尾部
 - **修复极简模式崩溃**：修复开启“极简模式”时的 `TypeError: vgCfGroups is not iterable`
 - **链式代理完全跟随上游**：上游曾于 `cf3d3f6a` 移除、又于 `e0eb0da` 恢复；本 fork 不再维护自有实现，开关、`dialer-proxy` 处理、以及「链式中转」/「链式落地」两个策略组一律用上游代码（2026-11-03 已移除此前的本地语义改动）。**注意上游的两个既有行为**：①开关开启时会把自定义节点已写的 `dialer-proxy` 直接覆盖为「链式中转」，手写的多级链路不保留；②开关关闭后不会清理指向「链式中转」的引用，若自定义节点里手写过该值，mihomo 加载会报 `dialer-proxy not found`
-- **图标自持**：脚本里的 `iconBaseUrl` 指向本仓库 `@stable/Icons/svg/`，仓库里那 80 个图标文件才真正被引用（此前指向上游 `AIsouler/MyClash`，本地这份等于没用上）；两个静态 `Config/*.yaml` 仍用上游图标地址，避免与上游的图标改动反复冲突
 - **分发与开发分离**：客户端导入的 raw 链接指向 `stable` 分支，`main` 是开发分支。自动同步、日常提交都只动 `main`；只有打了 `vX.Y.Z` tag，`release` workflow 才会把 `stable` 快进到该 tag 指向的提交——一次误提交不会再直接推给所有客户端
 - **VG 开关职责收敛**：`VG` 只控制家宽相关策略组及其节点排除，不再控制自定义规则集；关闭 VG 时家宽/优选节点会正常归入地区组，而不会凭空消失
 - **新增自定义规则集**：接入 `custom_proxy` / `custom_direct` / `custom_direct_ip` 分流规则与 `custom_fakeip_filter` 假 IP 过滤，来自 [ruleset-builder](https://github.com/xinming7/ruleset-builder)，不受任何开关控制、始终生效（全量版与精简版均已接入）
-- **修复配置加载失败**：关闭 `GitHub` 开关时 `Microsoft` 组残留的 `github` 规则集引用、以及订阅仅含家宽/优选节点时基础组为空，此前都会让 mihomo 校验失败
+- **修复基础组为空导致的校验失败**：订阅仅含家宽/优选节点时，`VG` 过滤会让 `includeAll` 分流组变成空数组，mihomo 校验会拒绝；现由空组回退兜底（全量版）
 - **补全规则集下载直连域名**：`v6.gh-proxy.org`、`gh-proxy.org`、`static-file-global.353355.xyz` 加入前置直连，避免规则集拉取时走代理形成循环依赖
 - **家宽节点并存两套语义**：上游的「家宽节点」组按 `家宽|住宅|原生IP|家庭宽带|ISP|RES|residential` 关键词归类；本 fork 的 `VG家宽` / `🏠 家宽自动` 只认 `🏠 XX-家宽-NN` 固定格式。`VG` 开启时家宽/优选节点不会重复进「家宽节点」与地区组（由 `VG家宽`、`⚡ CF前置` 承载）；关闭 `VG` 时这些节点会正常回落到「家宽节点」与地区组，不会消失（全量版）
 

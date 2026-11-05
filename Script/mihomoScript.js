@@ -56,7 +56,7 @@ const ruleOptionsEnable = {
   过滤低倍率节点: false, // 是否过滤低倍率节点
   过滤高倍率节点: false, // 是否过滤高倍率节点
   过滤非地区节点: true, // 是否过滤非地区节点
-  屏蔽国外QUIC: false, // 是否屏蔽国外QUIC流量
+  屏蔽国外QUIC: true, // 是否屏蔽国外QUIC流量（本 fork 默认开启）
   代理IPV4优先: false, // 是否将订阅节点统一为 IPv4 优先（与“代理IPV6优先”同时开启时不生效）
   代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）
 
@@ -158,7 +158,7 @@ const directProxies = [
 ];
 
 // 图标 URL 公共前缀
-const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/xinming7/MyClash@stable/Icons/svg/';
+const iconBaseUrl = 'https://cdn.jsdmirror.com/gh/AIsouler/MyClash@main/Icons/svg/';
 
 // 规则集 URL 公共前缀
 const ruleSetBaseUrl = 'https://cdn.jsdmirror.com/gh/appshubcc/bett-rules@meta/geo/';
