@@ -305,12 +305,12 @@ const FEATURES = [
         why: 'custom_fakeip_filter 是域名规则集，需注册进 fake-ip-filter 而非 rules',
         marker: /'rule-set:custom_fakeip_filter'/,
         only: 'full',
-        // 锚 fake-ip-filter 里最闲的一行：`'rule-set:geolocation-cn',` 在上游历史上只被碰过 1 次
-        // （2026-08-19 引入），而同数组的 `'rule-set:private',` 与 `'rule-set:fakeip_filter',` 各被改过 3 次
-        // —— 后两者所在的这一段正是上游「补充/调整 DNS 过滤项」的施工区。
-        // fake-ip-filter 是集合语义，插在 geolocation-cn 之前与插在 fakeip_filter 之后完全等价。
+        // 锚数组尾部的 `...proxyFakeIpFilter,`，而不是某个条目：
+        // 2026-11-05 上游 1aced69 把 `'rule-set:geolocation-cn',` 换成了 `'rule-set:cn',`，
+        // 条目级锚点当场失效。尾部展开项是这段数组最稳定的落点，且必须插在尾部——
+        // 上游测试断言 `fake-ip-filter[0] === 'rule-set:private'`，插到首位会让它变红。
         op: 'insertBefore',
-        anchor: "      'rule-set:geolocation-cn',",
+        anchor: '      ...proxyFakeIpFilter,',
         text: "      'rule-set:custom_fakeip_filter',",
       },
       {
@@ -318,15 +318,19 @@ const FEATURES = [
         why: '精简版此处是单行数组，注册新规则集需展开为多行写法',
         marker: /'rule-set:custom_fakeip_filter'/,
         only: 'lite',
+        // 精简版是单行数组，只能整行 replace 才能在 prettier 眼里合法（插完超过 120 列会被
+        // prettier 拆行，而 CI 的 format job 真的会改写 Script/*.js，改写后 replay 立刻红）。
+        // 代价是这行必须跟着上游走：它正是上游调 DNS 过滤项的高频施工区，
+        // 2026-11-05 已把 geolocation-cn 换成 cn。锚点失效时 verify 会报，按提示更新即可。
         op: 'replace',
         anchor:
-          "    'fake-ip-filter': ['rule-set:private', 'rule-set:fakeip_filter', 'rule-set:geolocation-cn', ...proxyFakeIpFilter],",
+          "    'fake-ip-filter': ['rule-set:private', 'rule-set:fakeip_filter', 'rule-set:cn', ...proxyFakeIpFilter],",
         text: [
           "    'fake-ip-filter': [",
           "      'rule-set:private',",
           "      'rule-set:fakeip_filter',",
+          "      'rule-set:cn',",
           "      'rule-set:custom_fakeip_filter',",
-          "      'rule-set:geolocation-cn',",
           '      ...proxyFakeIpFilter,',
           '    ],',
         ].join('\n'),

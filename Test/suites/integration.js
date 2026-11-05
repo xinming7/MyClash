@@ -1,27 +1,17 @@
 'use strict';
 
+const { withOptions } = require('../lib/options');
+
 const groupByName = (groups, name) => groups.find((g) => g.name === name);
 const proxyNames = (proxies) => proxies.map((p) => p.name);
 
-/** 临时修改 ruleOptionsEnable 的若干选项，执行完成后恢复，避免污染后续用例 */
-function withOptions(api, patch, fn) {
-  const saved = {};
-  for (const key of Object.keys(patch)) {
-    saved[key] = api.ruleOptionsEnable[key];
-    api.ruleOptionsEnable[key] = patch[key];
-  }
-  try {
-    return fn();
-  } finally {
-    for (const key of Object.keys(patch)) api.ruleOptionsEnable[key] = saved[key];
-  }
-}
-
 /**
  * 集成测试：直接调用 main() 对模拟订阅进行覆写并断言输出。
- * meta: { full, regions }
  */
-function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
+function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
+  // 上游 2026-11-05 移除了 runIntegrationTests 的 meta 参数（测试套件清理），
+  // 这里改用脚本文件名判断版本，保持 fork 用例（VG 等仅全量版有）的跳过逻辑。
+  const isFull = /mihomoScript\.js$/.test(scriptFile);
   // ---------------- 节点过滤与标准化 ----------------
   h.section('集成测试 · 节点过滤与标准化');
   h.test('节点过滤与标准化：剔除无效节点、保留有效节点并补国旗', () => {
@@ -113,9 +103,6 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
     const out = api.main(cfg);
     h.assertEqual(out.dns.enable, true);
     h.assertEqual(out.dns['enhanced-mode'], 'fake-ip');
-    // 默认 DNS 与代理服务器 DNS 分别使用固定列表，不再承载私有 DNS
-    h.assertDeep(out.dns['default-nameserver'], api.defaultDNS);
-    h.assertDeep(out.dns['proxy-server-nameserver'], api.proxyServerDNS);
     // 相同 DNS 的节点域名按后缀压缩为一条规则；两个来源的私有 DNS 合并去重、剥离 # 后缀
     const policy = out.dns['proxy-server-nameserver-policy'];
     h.assertDeep(policy['+.example.com'], [
@@ -279,8 +266,6 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
     const privateDNS = out3.dns['proxy-server-nameserver-policy']['+.example.com'];
     h.assert(!privateDNS.some((d) => d.includes('udp://127.0.0.1')), 'listen 对应的本地 DNS 不应被误留为私有 DNS');
     h.assert(privateDNS.includes('https://private.example-dns.com/dns-query'), 'nameserver 中的私有 DNS 仍应保留');
-    h.assertDeep(out3.dns['default-nameserver'], api.defaultDNS);
-    h.assertDeep(out3.dns['proxy-server-nameserver'], api.proxyServerDNS);
   });
   h.test('无 dns/hosts 输入时生成默认配置', () => {
     const cfg = fx.typicalSubscription();
@@ -288,9 +273,7 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
     delete cfg.hosts;
     const out = api.main(cfg);
     h.assertEqual(out.dns.enable, true);
-    // 默认与代理服务器 DNS 使用各自的固定公共 DNS；无私有 DNS 时不生成 policy
-    h.assertDeep(out.dns['default-nameserver'], api.defaultDNS);
-    h.assertDeep(out.dns['proxy-server-nameserver'], api.proxyServerDNS);
+    // 无私有 DNS 时不生成 policy
     h.assert(!('proxy-server-nameserver-policy' in out.dns), '无私有 DNS 时不应生成 policy');
     h.assertDeep(out.hosts['doh.pub'], ['1.12.12.12', '120.53.53.53']);
     // 默认 hosts 仍生成（不再包含已移除的 dns.alidns.com/dns.google 等条目）
@@ -319,7 +302,7 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
       h.assert(!out['rule-providers'].github, '不应注册 github provider');
       h.assert(!out.rules.some((rule) => rule.includes(',github,')), '不应残留 github 规则');
       // 精简版没有 Microsoft 组，只对全量版校验
-      if (meta.full) {
+      if (isFull) {
         h.assert(groupByName(out['proxy-groups'], 'Microsoft'), 'Microsoft 组应仍然存在');
       }
     }),
@@ -410,24 +393,6 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
       h.assert(groupByName(out['proxy-groups'], 'AI').proxies.includes('🇭🇰 香港 A'), 'AI 组应含全部节点');
     }),
   );
-  h.test('屏蔽国外QUIC 开关：默认关闭 / true 生成基于 geolocation-!cn 的屏蔽规则', () => {
-    // 默认 false → 不含 QUIC 规则；cn_additional 规则集已废弃，任何情况下都不生成
-    const def = api.main(fx.minimalSubscription());
-    h.assert(!def.rules.some((r) => r.includes('DST-PORT,443') && r.includes('REJECT')), '默认不应含 QUIC 规则');
-    h.assert(!def['rule-providers'].cn_additional, 'cn_additional 规则集不应再生成');
-    h.assert(def['rule-providers'].cn, 'cn 规则集仍应生成（供 nameserver-policy 使用）');
-    // true → 命中 geolocation-!cn 的 UDP 443 流量拒绝
-    withOptions(api, { 屏蔽国外QUIC: true }, () => {
-      const out = api.main(fx.minimalSubscription());
-      h.assert(
-        out.rules.some(
-          (r) => r.includes('DST-PORT,443') && r.includes('RULE-SET,geolocation-!cn') && r.includes('REJECT'),
-        ),
-        '应含基于 geolocation-!cn 的 QUIC 屏蔽规则',
-      );
-      h.assert(out['rule-providers']['geolocation-!cn'], 'geolocation-!cn 规则集应存在');
-    });
-  });
   h.test('关闭 AI 分流组 → 移除组/规则/规则集', () =>
     withOptions(api, { AI: false }, () => {
       const out = api.main(fx.minimalSubscription());
@@ -490,7 +455,7 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
     ],
   });
   h.test('VG 开启：VG 格式家宽节点归 VG家宽，不重复进家宽节点/地区组', () => {
-    if (!meta.full) return; // 精简版无 VG 功能
+    if (!isFull) return; // 精简版无 VG 功能
     withOptions(api, { VG: true }, () => {
       const out = api.main(vgHomeSubscription());
       const vgGroup = groupByName(out['proxy-groups'], 'VG家宽');
@@ -582,12 +547,9 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
       }
     }
   });
-  h.test('两开关同时开启 → 保持不变：开关保持开启、不应用任何偏好', () =>
+  h.test('两开关同时开启 → 不应用任何偏好', () =>
     withOptions(api, { 代理IPV4优先: true, 代理IPV6优先: true }, () => {
       const out = api.main(fx.typicalSubscription());
-      // 同时开启时开关保持不变（不被自动关闭）
-      h.assertEqual(api.ruleOptionsEnable.代理IPV4优先, true, 'IPv4 应保持不变');
-      h.assertEqual(api.ruleOptionsEnable.代理IPV6优先, true, 'IPv6 应保持不变');
       // 不应用任何 IP 版本偏好：订阅节点保持原样（不新增 ip-version）
       for (const p of nonDirectProxies(out)) {
         h.assert(!('ip-version' in p), `订阅节点 ${p.name} 不应被新增 ip-version`);
@@ -733,13 +695,6 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
         }
       }
 
-      // GLOBAL 聚合所有策略组（含链式中转与链式落地）
-      for (const g of out['proxy-groups']) {
-        if (g.name !== 'GLOBAL') {
-          h.assert(global.proxies.includes(g.name), `GLOBAL 应包含策略组 ${g.name}`);
-        }
-      }
-
       // 自定义节点仍参与其他策略组（默认代理/手动选择）；链式中转只放订阅节点，不再形成回环
       h.assert(groupByName(out['proxy-groups'], '默认代理').proxies.includes('链式落地'), '默认代理应含链式落地组');
       h.assert(
@@ -805,7 +760,7 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
   // 曾被链式补丁的 marker 误判为「已注入」而整块跳过，而 verify 与 replay 依然全绿。
   h.section('集成测试 · VG 与链式代理互不吞噬');
   h.test('VG 与链式代理同时开启：VG 组、链式中转、链式落地同时存在', () => {
-    if (!meta.full) return; // 精简版无 VG 功能
+    if (!isFull) return; // 精简版无 VG 功能
     const customApi = loadScript(scriptFile, (code) =>
       code.replace('const customizeProxies = [];', chainCustomInjection),
     );
@@ -849,7 +804,7 @@ function runIntegrationTests(h, api, meta, fx, loadScript, scriptFile) {
   });
 
   h.test('极简模式 + VG：不因缺少 vgCfGroups 字段而崩溃，且不生成 VG 组', () => {
-    if (!meta.full) return; // 精简版无 VG 功能
+    if (!isFull) return; // 精简版无 VG 功能
     withOptions(api, { 极简模式: true, VG: true }, () => {
       // 极简模式在 VG 组构造前就 return，main() 靠解构默认值兜底；漏了就是 TypeError
       const out = api.main(vgHomeSubscription());

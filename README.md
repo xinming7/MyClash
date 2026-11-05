@@ -25,7 +25,8 @@
 
 - **新增 `GitHub` 分流策略组**：为 GitHub 域名单独分流，图标复用上游 GitHub 图标（全量版与精简版均已支持）
 - **同步上游增强**：零宽/不可见字符节点名匹配、公共 DNS 过滤项扩充（全量版与精简版均已同步）
-- **同步上游规则修复**：补回 `DOMAIN,cdn.jsdmirror.com,直连` 前置规则（避免规则集下载的鸡蛋问题），移除「圣地亚哥」地区匹配词
+- **同步上游规则修复**：补回 `DOMAIN,cdn.jsdmirror.com,直连` 前置规则（避免规则集下载的鸡蛋问题），移除「圣地亚哥」地区匹配词；`屏蔽国外QUIC` 改用 `RULE-SET,cn` + `cn_ip` 判定，且**默认值改为关闭**（上游 2026-11-05，需要屏蔽请在 Bettbox 里手动打开）
+- **同步上游 DNS 调整**：`fake-ip-filter` 里的 `rule-set:geolocation-cn` 换成 `rule-set:cn`（上游 2026-11-05），本 fork 的自定义过滤集 `custom_fakeip_filter` 仍注册在该数组尾部
 - **修复极简模式崩溃**：修复开启“极简模式”时的 `TypeError: vgCfGroups is not iterable`
 - **链式代理完全跟随上游**：上游曾于 `cf3d3f6a` 移除、又于 `e0eb0da` 恢复；本 fork 不再维护自有实现，开关、`dialer-proxy` 处理、以及「链式中转」/「链式落地」两个策略组一律用上游代码（2026-11-03 已移除此前的本地语义改动）。**注意上游的两个既有行为**：①开关开启时会把自定义节点已写的 `dialer-proxy` 直接覆盖为「链式中转」，手写的多级链路不保留；②开关关闭后不会清理指向「链式中转」的引用，若自定义节点里手写过该值，mihomo 加载会报 `dialer-proxy not found`
 - **图标自持**：脚本里的 `iconBaseUrl` 指向本仓库 `@stable/Icons/svg/`，仓库里那 80 个图标文件才真正被引用（此前指向上游 `AIsouler/MyClash`，本地这份等于没用上）；两个静态 `Config/*.yaml` 仍用上游图标地址，避免与上游的图标改动反复冲突

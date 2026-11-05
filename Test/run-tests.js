@@ -5,6 +5,7 @@ const { Harness } = require('./lib/harness');
 const fx = require('./lib/fixtures');
 const { runUnitTests } = require('./suites/unit');
 const { runIntegrationTests } = require('./suites/integration');
+const { runForkTests } = require('./suites/fork');
 const { runES2020Checks } = require('./lib/es2020-check');
 const { runQuickJSChecks } = require('./lib/quickjs-check');
 const { SCRIPTS } = require('./lib/scripts');
@@ -50,8 +51,10 @@ async function main() {
       const api = loadScript(script.file);
       const h = new Harness(script.label);
 
-      runUnitTests(h, api, script.meta);
-      runIntegrationTests(h, api, script.meta, fx, loadScript, script.file);
+      runUnitTests(h, api);
+      runIntegrationTests(h, api, fx, loadScript, script.file);
+      // fork 独有用例放在独立文件里（上游没有该文件，同步时不会冲突）
+      runForkTests(h, api);
       printDemo(api, script.label, script.meta);
 
       const s = h.summary();

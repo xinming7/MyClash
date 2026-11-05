@@ -2,37 +2,37 @@
   "note": "文档里保留的行号引用及其「特征串」（needle）。约定：特征串必须**从被引用的那一行开始**——check-doc-refs.js 靠这一点把行号重新定位，多行特征串因此可以消歧而不产生偏移歧义。行号可以漂，但起点那行必须仍与 needle 开头吻合；对不上就报错，--fix 会用 needle 找回唯一位置。新增裸行号引用必须先登记，否则 --strict 失败。why 只给人看。",
   "refs": [
     {
-      "ref": "Script/mihomoScript.js:1045",
+      "ref": "Script/mihomoScript.js:1039",
       "needle": "ruleOptionsEnable.VG && (autoExcludeRegex",
       "why": "节点过滤里的 VG 门控（与 :1283 的判断结构相似，靠特征串区分）"
     },
     {
-      "ref": "Script/mihomoScript.js:1283",
+      "ref": "Script/mihomoScript.js:1271",
       "needle": "groupProxies = ruleOptionsEnable.VG",
       "why": "地区组的 VG 门控"
     },
     {
-      "ref": "Script/mihomoScript.js:1262",
+      "ref": "Script/mihomoScript.js:1250",
       "needle": "proxies: [...vgCfGroupNames, ...groupNamesOfSelect, ...baseGroupNames, ...customGroupNames]",
       "why": "默认代理组注入 vgCfGroupNames"
     },
     {
-      "ref": "Script/mihomoScript.js:1292",
+      "ref": "Script/mihomoScript.js:1280",
       "needle": "            ...vgCfGroupNames,\n            ...customGroupNames,\n            ...baseGroupNames,\n            ...groupNamesOfSelect,\n            ...(svc.direct ? ['直连'] : []),\n          ]",
       "why": "第一种分流组（不含全部节点）注入 vgCfGroupNames；跨行特征串用于消歧"
     },
     {
-      "ref": "Script/mihomoScript.js:1300",
+      "ref": "Script/mihomoScript.js:1288",
       "needle": "            ...vgCfGroupNames,\n            ...customGroupNames,\n            ...baseGroupNames,\n            ...groupNamesOfSelect,\n            ...allProxiesNames,",
       "why": "第二种分流组（含全部节点）注入 vgCfGroupNames；跨行特征串用于消歧"
     },
     {
-      "ref": "Script/mihomoScript.js:1327",
+      "ref": "Script/mihomoScript.js:1315",
       "needle": "proxies: ['默认代理', ...vgCfGroupNames, '直连', ...groupNamesOfSelect]",
       "why": "漏网之鱼注入 vgCfGroupNames"
     },
     {
-      "ref": "Script/mihomoScript.js:1344",
+      "ref": "Script/mihomoScript.js:1332",
       "needle": "      ...vgCfGroupNames,\n      ...customGroupNames,\n      ...(chainGroup ? [chainGroup.name] : []),",
       "why": "GLOBAL 注入 vgCfGroupNames；跨行特征串用于消歧"
     }
