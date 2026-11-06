@@ -62,31 +62,31 @@ const FEATURES = [
 
   {
     id: 'rate-default-off',
-    title: '「生成倍率组」默认关闭（仅全量版）',
+    title: '「生成高低倍率组」默认关闭（仅全量版）',
     only: 'full',
     patches: [
       {
         id: 'rate-default-off',
         why: '上游默认开启倍率组，本 fork 全量版改为默认关闭以精简策略组（精简版保持上游默认）',
-        marker: /生成倍率组: false,/,
+        marker: /生成高低倍率组: false,/,
         op: 'replace',
-        anchor: '  生成倍率组: true, // 是否生成低倍率/高倍率策略组',
-        text: '  生成倍率组: false, // 是否生成低倍率/高倍率策略组（本 fork 默认关闭）',
+        anchor: '  生成高低倍率组: true, // 是否生成低倍率/高倍率策略组',
+        text: '  生成高低倍率组: false, // 是否生成低倍率/高倍率策略组（本 fork 默认关闭）',
       },
     ],
   },
 
   {
     id: 'quic-default-on',
-    title: '「屏蔽国外QUIC」默认开启（两版）',
+    title: '「屏蔽代理QUIC流量」默认开启（两版）',
     patches: [
       {
         id: 'quic-default-on',
         why: '上游 2026-11-05 把默认值从 true 改成 false；本 fork 仍默认屏蔽（QUIC 走 UDP 易被限速/污染，屏蔽后回落到 TCP 更稳），规则实现跟随上游不改',
-        marker: /屏蔽国外QUIC: true,/,
+        marker: /屏蔽代理QUIC流量: true,/,
         op: 'replace',
-        anchor: '  屏蔽国外QUIC: false, // 是否屏蔽国外QUIC流量',
-        text: '  屏蔽国外QUIC: true, // 是否屏蔽国外QUIC流量（本 fork 默认开启）',
+        anchor: '  屏蔽代理QUIC流量: false, // 是否屏蔽非国内目标的 QUIC 流量',
+        text: '  屏蔽代理QUIC流量: true, // 是否屏蔽非国内目标的 QUIC 流量（本 fork 默认开启）',
       },
     ],
   },
@@ -113,32 +113,20 @@ const FEATURES = [
   },
 
   {
-    id: 'prefix-direct-comment',
-    title: '规则集下载域名直连的说明注释',
-    only: 'full',
-    patches: [
-      {
-        id: 'prefix-comment',
-        why: '说明这些域名为何必须直连，防止后人误删',
-        marker: /这些域名必须直连/,
-        op: 'insertBefore',
-        anchor: "  'DOMAIN,cdn.jsdmirror.com,直连',",
-        text: '  // 这些域名必须直连，否则规则集拉取会走代理形成循环依赖（节点不可用时全部拉取失败）',
-      },
-    ],
-  },
-
-  {
     id: 'prefix-direct-hosts',
     title: '规则集下载域名前置直连',
     patches: [
       {
         id: 'prefix-domains',
-        why: '本 fork 的规则集源走 gh-proxy / 自建 CDN，域名漏加会形成循环依赖',
-        marker: /'DOMAIN,v6\.gh-proxy\.org,直连'/,
+        why: '本 fork 的自定义规则集走 gh-proxy，域名漏加会形成循环依赖；注释说明原因，防止后人误删',
+        marker: /这些域名必须直连/,
+        // 上游 2026-11-06 换成 fastly.jsdelivr.net 并删掉了自己的 CDN 直连规则与注释，
+        // 原来锚 `'DOMAIN,cdn.jsdmirror.com,直连',` 的两条补丁随之全失效。
+        // 改为锚 prefixRules 数组开头：这一段是上游原文，且不依赖任何其它补丁的产物。
         op: 'insertAfter',
-        anchor: "  'DOMAIN,cdn.jsdmirror.com,直连',",
+        anchor: 'const prefixRules = [',
         text: [
+          '  // 这些域名必须直连，否则规则集拉取会走代理形成循环依赖（节点不可用时全部拉取失败）',
           "  'DOMAIN,v6.gh-proxy.org,直连',",
           "  'DOMAIN,gh-proxy.org,直连',",
           "  'DOMAIN,static-file-global.353355.xyz,直连',",
@@ -159,13 +147,14 @@ const FEATURES = [
         // 曾经锚 `'DOMAIN,static-file-global.353355.xyz,直连',`——那是 prefix-domains 注入的产物，
         // 等于把本补丁的存活押在另一个补丁上。改成 insertBefore 后插入位置不变，但不再有跨补丁依赖。
         op: 'insertBefore',
-        anchor: ['', '  // 私有网络直连', "  'RULE-SET,private,直连',"],
+        anchor: ['  // 私有网络直连', "  'RULE-SET,private,直连',"],
         text: [
           '',
           '  // 自定义规则集（ruleset-builder 产物，独立维护，始终生效）',
           "  'RULE-SET,custom_proxy,默认代理',",
           "  'RULE-SET,custom_direct,直连',",
           "  'RULE-SET,custom_direct_ip,直连,no-resolve',",
+          '',
         ].join('\n'),
       },
     ],

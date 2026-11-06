@@ -202,7 +202,7 @@ jobs:
           #  full           VG 开：覆盖「VG 开但订阅无家宽节点」的空组路径
           #  full-noVG      VG 关：VG 三组与 vgCfGroupNames 全部不生成，是最常用的默认形态，
           #                 漏了这条等于默认路径没进过内核
-          #  full-minimal   极简 + VG：极简模式在 VG 组构造前 return，main() 靠解构默认值兜底，
+          #  full-minimal   极简 + VG：极简国内外分流模式在 VG 组构造前 return，main() 靠解构默认值兜底，
           #                 漏了 vgCfGroups 就是 TypeError（只有内核步骤会真正跑一遍装配）
           #  full-chain     VG + 链式代理 + 注入自定义节点：链式代理开启时 VG 组必须仍在
           #                 （2026-11-03 上游恢复链式代理时，VG 载荷曾被整块静默丢弃）
@@ -213,7 +213,7 @@ jobs:
 
           node Tools/gen-config.js Script/mihomoScript.js "$RUNNER_TEMP/full.json" '{"VG":true}'
           node Tools/gen-config.js Script/mihomoScript.js "$RUNNER_TEMP/full-noVG.json" '{}'
-          node Tools/gen-config.js Script/mihomoScript.js "$RUNNER_TEMP/full-minimal.json" '{"VG":true,"极简模式":true}'
+          node Tools/gen-config.js Script/mihomoScript.js "$RUNNER_TEMP/full-minimal.json" '{"VG":true,"极简国内外分流模式":true}'
           node Tools/gen-config.js Script/mihomoScript.js "$RUNNER_TEMP/full-chain.json" '{"VG":true,"链式代理":true}' "$NODES"
           node Tools/gen-config.js Script/Script.js "$RUNNER_TEMP/lite.json"
           node Tools/gen-config.js Script/Script.js "$RUNNER_TEMP/lite-chain.json" '{"链式代理":true}' "$NODES"

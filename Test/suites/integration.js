@@ -335,7 +335,7 @@ function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
     h.assert(out.rules.includes('RULE-SET,github,GitHub'), '应生成指向 GitHub 组的规则');
   });
   h.test('自定义规则集：始终注册 provider 且规则成对，不依赖任何开关', () =>
-    withOptions(api, { 极简模式: false, VG: true }, () => {
+    withOptions(api, { 极简国内外分流模式: false, VG: true }, () => {
       const out = api.main(fx.typicalSubscription());
       for (const name of ['custom_proxy', 'custom_direct', 'custom_direct_ip', 'custom_fakeip_filter']) {
         h.assert(out['rule-providers'][name], `应注册 ${name} provider`);
@@ -348,7 +348,7 @@ function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
         'custom_fakeip_filter 应注册进 fake-ip-filter',
       );
       // 规则集源域名必须走直连，否则拉取时会走代理形成循环依赖
-      for (const host of ['cdn.jsdmirror.com', 'static-file-global.353355.xyz']) {
+      for (const host of ['v6.gh-proxy.org', 'gh-proxy.org', 'static-file-global.353355.xyz']) {
         h.assert(out.rules.includes(`DOMAIN,${host},直连`), `${host} 应在前置规则中直连`);
       }
     }),
@@ -824,14 +824,14 @@ function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
     });
   });
 
-  h.test('极简模式 + VG：不因缺少 vgCfGroups 字段而崩溃，且不生成 VG 组', () => {
+  h.test('极简国内外分流模式 + VG：不因缺少 vgCfGroups 字段而崩溃，且不生成 VG 组', () => {
     if (!isFull) return; // 精简版无 VG 功能
-    withOptions(api, { 极简模式: true, VG: true }, () => {
-      // 极简模式在 VG 组构造前就 return，main() 靠解构默认值兜底；漏了就是 TypeError
+    withOptions(api, { 极简国内外分流模式: true, VG: true }, () => {
+      // 极简国内外分流模式在 VG 组构造前就 return，main() 靠解构默认值兜底；漏了就是 TypeError
       const out = api.main(vgHomeSubscription());
-      h.assert(groupByName(out['proxy-groups'], 'GLOBAL'), '极简模式应生成 GLOBAL');
-      h.assert(!groupByName(out['proxy-groups'], 'VG家宽'), '极简模式不生成 VG 组');
-      h.assert(!groupByName(out['proxy-groups'], '🏠 家宽自动'), '极简模式不生成家宽自动组');
+      h.assert(groupByName(out['proxy-groups'], 'GLOBAL'), '极简国内外分流模式应生成 GLOBAL');
+      h.assert(!groupByName(out['proxy-groups'], 'VG家宽'), '极简国内外分流模式不生成 VG 组');
+      h.assert(!groupByName(out['proxy-groups'], '🏠 家宽自动'), '极简国内外分流模式不生成家宽自动组');
     });
   });
 

@@ -38,7 +38,7 @@ const ruleOptionsEnable = {
   过滤低倍率节点: false, // 是否过滤低倍率节点
   过滤高倍率节点: false, // 是否过滤高倍率节点
   过滤非地区节点: true, // 是否过滤非地区节点
-  屏蔽代理QUIC流量: false, // 是否屏蔽非国内目标的 QUIC 流量
+  屏蔽代理QUIC流量: true, // 是否屏蔽非国内目标的 QUIC 流量（本 fork 默认开启）
   代理IPV4优先: false, // 是否将订阅节点统一为 IPv4 优先（与“代理IPV6优先”同时开启时不生效）
   代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）
   链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经“链式中转”策略组中转）
@@ -46,6 +46,16 @@ const ruleOptionsEnable = {
 
 // 定义前置规则
 const prefixRules = [
+  // 这些域名必须直连，否则规则集拉取会走代理形成循环依赖（节点不可用时全部拉取失败）
+  'DOMAIN,v6.gh-proxy.org,直连',
+  'DOMAIN,gh-proxy.org,直连',
+  'DOMAIN,static-file-global.353355.xyz,直连',
+
+  // 自定义规则集（ruleset-builder 产物，独立维护，始终生效）
+  'RULE-SET,custom_proxy,默认代理',
+  'RULE-SET,custom_direct,直连',
+  'RULE-SET,custom_direct_ip,直连,no-resolve',
+
   // 私有网络直连
   'RULE-SET,private,直连',
 

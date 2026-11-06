@@ -50,13 +50,13 @@ const ruleOptionsEnable = {
   极简国内外分流模式: false, // 是否启用极简国内外分流模式
   生成地区自动选择组: true, // 是否生成地区自动选择策略组
   隐藏地区手动选择组: false, // 是否隐藏地区手动选择策略组
-  生成高低倍率组: true, // 是否生成低倍率/高倍率策略组
+  生成高低倍率组: false, // 是否生成低倍率/高倍率策略组（本 fork 默认关闭）
   生成家宽节点组: true, // 是否生成家宽（住宅/原生 IP）节点策略组
   分流组添加所有节点: false, // 是否为分流策略组添加所有节点
   过滤低倍率节点: false, // 是否过滤低倍率节点
   过滤高倍率节点: false, // 是否过滤高倍率节点
   过滤非地区节点: true, // 是否过滤非地区节点
-  屏蔽代理QUIC流量: false, // 是否屏蔽非国内目标的 QUIC 流量
+  屏蔽代理QUIC流量: true, // 是否屏蔽非国内目标的 QUIC 流量（本 fork 默认开启）
   代理IPV4优先: false, // 是否将订阅节点统一为 IPv4 优先（与“代理IPV6优先”同时开启时不生效）
   代理IPV6优先: false, // 是否将订阅节点统一为 IPv6 优先（与“代理IPV4优先”同时开启时不生效）
 
@@ -67,6 +67,16 @@ const ruleOptionsEnable = {
 
 // 定义前置规则
 const prefixRules = [
+  // 这些域名必须直连，否则规则集拉取会走代理形成循环依赖（节点不可用时全部拉取失败）
+  'DOMAIN,v6.gh-proxy.org,直连',
+  'DOMAIN,gh-proxy.org,直连',
+  'DOMAIN,static-file-global.353355.xyz,直连',
+
+  // 自定义规则集（ruleset-builder 产物，独立维护，始终生效）
+  'RULE-SET,custom_proxy,默认代理',
+  'RULE-SET,custom_direct,直连',
+  'RULE-SET,custom_direct_ip,直连,no-resolve',
+
   // 私有网络直连
   'RULE-SET,private,直连',
 
@@ -1281,6 +1291,10 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
             ...(svc.direct ? ['直连'] : []),
           ];
     }
+
+    // includeAll 组不能为空：VG 开启时若订阅全是家宽/优选节点，过滤后会是空数组，
+    // 而 mihomo 校验阶段要求 select/url-test/load-balance 组必须有 proxies 或 use
+    if (svc.includeAll && groupProxies.length === 0) groupProxies = [...allProxiesNames];
 
     const selected =
       svc.defaultSelected !== undefined && groupProxies.includes(svc.defaultSelected) ? svc.defaultSelected : undefined;
