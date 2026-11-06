@@ -9,9 +9,6 @@ const proxyNames = (proxies) => proxies.map((p) => p.name);
  * 集成测试：直接调用 main() 对模拟订阅进行覆写并断言输出。
  */
 function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
-  // 上游 2026-11-05 移除了 runIntegrationTests 的 meta 参数（测试套件清理），
-  // 这里改用脚本文件名判断版本，保持 fork 用例（VG 等仅全量版有）的跳过逻辑。
-  const isFull = /mihomoScript\.js$/.test(scriptFile);
   // ---------------- 节点过滤与标准化 ----------------
   h.section('集成测试 · 节点过滤与标准化');
   h.test('节点过滤与标准化：剔除无效节点、保留有效节点并补国旗', () => {
@@ -308,51 +305,6 @@ function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
       h.assert(!out.rules.some((rule) => /,(Google|AI|Telegram|Steam|AdBlock)$/.test(rule)), '不应生成分流规则');
     }),
   );
-  h.test('GitHub 开关关闭 → 不生成 GitHub 组、不注册 provider、不留悬空规则', () =>
-    withOptions(api, { GitHub: false }, () => {
-      const out = api.main(fx.typicalSubscription());
-      h.assert(!groupByName(out['proxy-groups'], 'GitHub'), '不应生成 GitHub 组');
-      h.assert(!out['rule-providers'].github, '不应注册 github provider');
-      h.assert(!out.rules.some((rule) => rule.includes(',github,')), '不应残留 github 规则');
-      // 精简版没有 Microsoft 组，只对全量版校验
-      if (isFull) {
-        h.assert(groupByName(out['proxy-groups'], 'Microsoft'), 'Microsoft 组应仍然存在');
-      }
-    }),
-  );
-  h.test('GitHub 开关开启 → 全量版生成 GitHub 组与对应 provider/规则', () => {
-    const out = api.main(fx.typicalSubscription());
-    if (!isFull) {
-      // 2026-11-05 起精简版完全跟随上游：上游精简版本来就没有 GitHub 分流组，本 fork 不再补齐。
-      // 想要 GitHub 分流请用全量版 Script/mihomoScript.js。
-      h.assert(!groupByName(out['proxy-groups'], 'GitHub'), '精简版不应生成 GitHub 组');
-      h.assert(!out['rule-providers'].github, '精简版不应注册 github provider');
-      h.assert(!out.rules.includes('RULE-SET,github,GitHub'), '精简版不应有指向 GitHub 的规则');
-      return;
-    }
-    h.assert(groupByName(out['proxy-groups'], 'GitHub'), '应生成 GitHub 组');
-    h.assert(out['rule-providers'].github, '应注册 github provider');
-    h.assert(out.rules.includes('RULE-SET,github,GitHub'), '应生成指向 GitHub 组的规则');
-  });
-  h.test('自定义规则集：始终注册 provider 且规则成对，不依赖任何开关', () =>
-    withOptions(api, { 极简国内外分流模式: false, VG: true }, () => {
-      const out = api.main(fx.typicalSubscription());
-      for (const name of ['custom_proxy', 'custom_direct', 'custom_direct_ip', 'custom_fakeip_filter']) {
-        h.assert(out['rule-providers'][name], `应注册 ${name} provider`);
-      }
-      h.assert(out.rules.includes('RULE-SET,custom_proxy,默认代理'), 'custom_proxy 规则应存在');
-      h.assert(out.rules.includes('RULE-SET,custom_direct,直连'), 'custom_direct 规则应存在');
-      h.assert(out.rules.includes('RULE-SET,custom_direct_ip,直连,no-resolve'), 'custom_direct_ip 规则应存在');
-      h.assert(
-        out.dns['fake-ip-filter'].includes('rule-set:custom_fakeip_filter'),
-        'custom_fakeip_filter 应注册进 fake-ip-filter',
-      );
-      // 规则集源域名必须走直连，否则拉取时会走代理形成循环依赖
-      for (const host of ['v6.gh-proxy.org', 'gh-proxy.org', 'static-file-global.353355.xyz']) {
-        h.assert(out.rules.includes(`DOMAIN,${host},直连`), `${host} 应在前置规则中直连`);
-      }
-    }),
-  );
   h.test('过滤高倍率节点=true → 移除高倍率节点及组', () =>
     withOptions(api, { 过滤高倍率节点: true }, () => {
       const out = api.main(fx.minimalSubscription());
@@ -465,54 +417,6 @@ function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
       );
       h.assert(!groupByName(out['proxy-groups'], '默认代理').proxies.includes('家宽节点'), '默认代理不应含家宽节点组');
       h.assert(proxyNames(out.proxies).includes('🇭🇰 香港 家宽 01'), '家宽节点本身仍应保留');
-    }),
-  );
-  // VG（本 fork）与上游家宽节点组语义不同：VG 识别「🏠 XX-家宽-NN」固定格式并单独成组，
-  // 上游家宽组识别「家宽|住宅|原生IP|…」关键词。两者必须共存且不重复收录同一节点。
-  const vgHomeSubscription = () => ({
-    proxies: [
-      { name: '🏠 HK-家宽-01', type: 'ss', server: 'g.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x' },
-      { name: '🇯🇵 日本 住宅 IP', type: 'ss', server: 'h.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x' },
-    ],
-  });
-  h.test('VG 开启：VG 格式家宽节点归 VG家宽，不重复进家宽节点/地区组', () => {
-    if (!isFull) return; // 精简版无 VG 功能
-    withOptions(api, { VG: true }, () => {
-      const out = api.main(vgHomeSubscription());
-      const vgGroup = groupByName(out['proxy-groups'], 'VG家宽');
-      const homeGroup = groupByName(out['proxy-groups'], '家宽节点');
-      h.assert(vgGroup, '应生成 VG家宽组');
-      h.assert(
-        vgGroup.proxies.some((n) => n.includes('HK-家宽-01')),
-        'VG 格式家宽节点应入 VG家宽组',
-      );
-      h.assert(!homeGroup.proxies.some((n) => n.includes('HK-家宽-01')), 'VG 格式家宽节点不应重复进上游家宽节点组');
-      h.assert(homeGroup.proxies.includes('🇯🇵 日本 住宅 IP'), '上游语义的家宽节点仍应入家宽节点组');
-      // 直接列出该节点的组只应是 VG 相关组（GLOBAL/分流组引用的是组名，不会命中节点名）
-      const hosts = out['proxy-groups']
-        .filter((g) => (g.proxies || []).some((n) => n.includes('HK-家宽-01')))
-        .map((g) => g.name)
-        .sort();
-      h.assertDeep(hosts, ['VG家宽', '🏠 家宽自动']);
-    });
-  });
-  h.test('VG 关闭：VG 格式家宽节点不丢失，回落进家宽节点与地区组', () =>
-    withOptions(api, { VG: false }, () => {
-      const out = api.main(vgHomeSubscription());
-      const names = proxyNames(out.proxies);
-      h.assert(
-        names.some((n) => n.includes('HK-家宽-01')),
-        '关闭 VG 后节点本身不应消失',
-      );
-      h.assert(!groupByName(out['proxy-groups'], 'VG家宽'), '关闭 VG 后不应生成 VG家宽组');
-      h.assert(
-        groupByName(out['proxy-groups'], '家宽节点').proxies.some((n) => n.includes('HK-家宽-01')),
-        '关闭 VG 后应回落进上游家宽节点组',
-      );
-      h.assert(
-        groupByName(out['proxy-groups'], '香港').proxies.some((n) => n.includes('HK-家宽-01')),
-        '关闭 VG 后应回落进地区组',
-      );
     }),
   );
 
@@ -652,7 +556,7 @@ function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
     h.assert(!groupByName(out['proxy-groups'], '链式中转'), '不应生成链式中转组');
   });
 
-  h.test('启用链式代理：生成链式中转组、自建- 前缀、按需补 dialer-proxy', () => {
+  h.test('启用链式代理：生成链式中转组、自建- 前缀、强制 dialer-proxy', () => {
     const customApi = loadScript(scriptFile, (code) =>
       code.replace('const customizeProxies = [];', chainCustomInjection),
     );
@@ -666,11 +570,11 @@ function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
       h.assert(n.includes('自建独享'), '未重名自定义节点保持原名');
       h.assertEqual(n.filter((x) => x === '🇭🇰 香港 01 | 中转').length, 1, '订阅节点仍应唯一保留');
 
-      // 强制 dialer-proxy（上游语义：`!== 链式中转` 就覆盖，用户已有值不保留）
+      // 强制 dialer-proxy（覆盖已有值）
       h.assertEqual(
         out.proxies.find((x) => x.name === '🇭🇰 自建-香港 01 | 中转')['dialer-proxy'],
         '链式中转',
-        '用户已有的 dialer-proxy 应被覆盖为链式中转',
+        '已有 dialer-proxy 应被覆盖',
       );
       h.assertEqual(
         out.proxies.find((x) => x.name === '自建独享')['dialer-proxy'],
@@ -723,115 +627,6 @@ function runIntegrationTests(h, api, fx, loadScript, scriptFile) {
         '手动选择应含自建节点',
       );
       h.assert(global.proxies.includes('链式落地'), 'GLOBAL 应含链式落地组');
-    });
-  });
-
-  h.test('关闭链式代理：自定义节点 dialer-proxy 原样保留（上游不清洗悬空引用）', () => {
-    const danglingInjection = `const customizeProxies = [
-      { name: '自建-手写中转', type: 'ss', server: 'c1.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x', 'dialer-proxy': '链式中转' },
-      { name: '自建-二级链路', type: 'ss', server: 'c2.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x', 'dialer-proxy': '自建-落地' },
-    ];`;
-    const customApi = loadScript(scriptFile, (code) => code.replace('const customizeProxies = [];', danglingInjection));
-    // 链式代理默认关闭
-    const out = customApi.main(fx.typicalSubscription());
-
-    h.assert(!groupByName(out['proxy-groups'], '链式中转'), '前置：关闭时不应生成链式中转组');
-
-    // 上游不清理：手写的「链式中转」引用会保留，此时组不存在 → mihomo 加载会报
-    // `dialer-proxy not found`。这是跟随上游后接受的已知限制（见 AGENTS.md），
-    // 用例锁住它，避免上游哪天补了清理逻辑而这里无人察觉。
-    h.assertEqual(
-      out.proxies.find((x) => x.name.includes('手写中转'))['dialer-proxy'],
-      '链式中转',
-      '上游不清洗指向链式中转的引用',
-    );
-    // 指向其他自建节点的合法链式配置原样保留
-    h.assertEqual(
-      out.proxies.find((x) => x.name.includes('二级链路'))['dialer-proxy'],
-      '自建-落地',
-      '指向自建节点的 dialer-proxy 应保留',
-    );
-  });
-
-  h.test('启用链式代理：用户手写的多级链路会被覆盖为链式中转（上游语义）', () => {
-    const mixedInjection = `const customizeProxies = [
-      { name: '自建-落地', type: 'ss', server: 'c1.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x' },
-      { name: '自建-多级', type: 'ss', server: 'c2.example.com', port: 443, cipher: 'aes-256-gcm', password: 'x', 'dialer-proxy': '自建-落地' },
-    ];`;
-    const customApi = loadScript(scriptFile, (code) => code.replace('const customizeProxies = [];', mixedInjection));
-    withOptions(customApi, { 链式代理: true }, () => {
-      const out = customApi.main(fx.typicalSubscription());
-
-      h.assertEqual(
-        out.proxies.find((x) => x.name.includes('落地'))['dialer-proxy'],
-        '链式中转',
-        '未指定 dialer-proxy 的节点应自动接入链式中转',
-      );
-      h.assertEqual(
-        out.proxies.find((x) => x.name.includes('多级'))['dialer-proxy'],
-        '链式中转',
-        '上游会把手写的多级链路一并覆盖为链式中转',
-      );
-    });
-  });
-
-  // ---------------- 特性正交性：VG × 链式代理 ----------------
-  // 这两套功能都改 buildFunctionalGroups 的返回值与 main() 的装配，历史上曾互相吞噬：
-  // 上游 2026-11-03 恢复链式代理后，VG 的四处载荷（返回值 / GLOBAL / 解构 / proxy-groups）
-  // 曾被链式补丁的 marker 误判为「已注入」而整块跳过，而 verify 与 replay 依然全绿。
-  h.section('集成测试 · VG 与链式代理互不吞噬');
-  h.test('VG 与链式代理同时开启：VG 组、链式中转、链式落地同时存在', () => {
-    if (!isFull) return; // 精简版无 VG 功能
-    const customApi = loadScript(scriptFile, (code) =>
-      code.replace('const customizeProxies = [];', chainCustomInjection),
-    );
-    withOptions(customApi, { VG: true, 链式代理: true }, () => {
-      const out = customApi.main(vgHomeSubscription());
-      const global = groupByName(out['proxy-groups'], 'GLOBAL');
-      const defaultGroup = groupByName(out['proxy-groups'], '默认代理');
-
-      h.assert(groupByName(out['proxy-groups'], 'VG家宽'), 'VG 组不应因链式代理而消失');
-      h.assert(groupByName(out['proxy-groups'], '🏠 家宽自动'), '家宽自动组不应因链式代理而消失');
-      h.assert(groupByName(out['proxy-groups'], '链式中转'), '链式中转组应存在');
-      h.assert(groupByName(out['proxy-groups'], '链式落地'), '链式落地组应存在');
-
-      // GLOBAL 同时聚合 VG 组与链式两组
-      for (const name of ['VG家宽', '链式中转', '链式落地']) {
-        h.assert(global.proxies.includes(name), `GLOBAL 应含 ${name}`);
-      }
-      // 默认代理既含 VG 组也含链式落地（前者是 VG 载荷，后者是自定义节点入口）
-      for (const name of ['VG家宽', '链式落地']) {
-        h.assert(defaultGroup.proxies.includes(name), `默认代理应含 ${name}`);
-      }
-
-      // VG 组要真的落在 proxy-groups 列表里，而不是只在别处被引用
-      const allNames = new Set(out['proxy-groups'].map((g) => g.name));
-      for (const name of ['VG家宽', '🏠 家宽自动']) {
-        h.assert(allNames.has(name), `${name} 应出现在 proxy-groups 中`);
-      }
-
-      // 链式中转仍只装订阅节点（含 VG 家宽节点），自定义节点靠 dialer-proxy 引用它
-      const chain = groupByName(out['proxy-groups'], '链式中转');
-      h.assert(
-        chain.proxies.some((n) => n.includes('HK-家宽-01')),
-        '链式中转应含订阅侧的 VG 节点',
-      );
-      h.assertEqual(
-        out.proxies.find((x) => x.name === '自建独享')['dialer-proxy'],
-        '链式中转',
-        '自定义节点仍应接入链式中转',
-      );
-    });
-  });
-
-  h.test('极简国内外分流模式 + VG：不因缺少 vgCfGroups 字段而崩溃，且不生成 VG 组', () => {
-    if (!isFull) return; // 精简版无 VG 功能
-    withOptions(api, { 极简国内外分流模式: true, VG: true }, () => {
-      // 极简国内外分流模式在 VG 组构造前就 return，main() 靠解构默认值兜底；漏了就是 TypeError
-      const out = api.main(vgHomeSubscription());
-      h.assert(groupByName(out['proxy-groups'], 'GLOBAL'), '极简国内外分流模式应生成 GLOBAL');
-      h.assert(!groupByName(out['proxy-groups'], 'VG家宽'), '极简国内外分流模式不生成 VG 组');
-      h.assert(!groupByName(out['proxy-groups'], '🏠 家宽自动'), '极简国内外分流模式不生成家宽自动组');
     });
   });
 

@@ -53,9 +53,12 @@
 （以及 `Test/README.md`、`Test/lib/scripts.js`）是上游的施工区，上游会定期「清理无意义与冗余测试用例」
 （2026-11-05 一次删了 119 行）。fork 的改动混进去，自动同步的合并冲突就会落在「非注入目标」上，
 直接触发 L1 人工分支——2026-11-05 那次同步失败正是 `Test/README.md` + `Test/lib/scripts.js` +
-`Test/suites/unit.js` 三处冲突导致的。挂载方式是 `run-tests.js` 里的一行 `runForkTests(h, api)`。
-反过来说，`suites/integration.js` 里仍有 2026-11-03 加的一批 fork 用例（VG / GitHub / 自定义规则集），
-它们是遗留冲突面，再遇到上游改该文件时会冲突，届时顺手迁到 `fork.js`。
+`Test/suites/unit.js` 三处冲突导致的。挂载方式是 `run-tests.js` 里的一行
+`runForkTests(h, api, { fx, loadScript, scriptFile: script.file })`（第三个参数是 2026-11-06 迁移时加的：
+end-to-end 用例要用 fixtures 和注入入口，别改回两参数）。
+**2026-11-06 已收口**：`suites/integration.js` 里最后 9 条 fork 用例（VG / GitHub / 自定义规则集 / 链式代理）
+已全部迁到 `fork.js`，该文件现在与上游**逐字节相同**。`Test/` 目录对上游的差异只剩 `run-tests.js`（挂载那 3 行）
+与 `fork.js`（新文件），冲突面归零；`git diff upstream/main --stat -- Test/` 应只列出这两个文件。
 
 ## 部署与 CI
 
@@ -175,7 +178,7 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
 
 - **「解构字段漏补」是五项校验里唯一只有测试能抓的错**：同一次上游重构中，如果只更新了锚点、忘记在 `main()` 的解构里补 `functionalIpRules`，会出现极其误导的组合：`replay` **逐字节一致**（它只比字节，不跑代码）、`verify` **特性齐全**、`mihomo -t` **四份全过**，但 `node Test/run-tests.js` 直接红 87 项，报 `functionalIpRules is not defined`。原因是上游 `main()` 的 `rules` 拼接里展开了 `...functionalIpRules`，解构漏了就是未定义变量。**教训：不要因为 replay 绿了就跳过测试；改 `buildFunctionalGroups` 的返回值/解构时，字段集合必须成对核对**（与上面那条「返回值必须与解构对齐」是同一类问题的上游版本）。
 
-- **2026-11-06 同步失败复盘：上游「统一开关命名」+「换 CDN」一次打断 4 个锚点**：上游 `b0ea9e4` 把三个开关改名（`极简模式`→`极简国内外分流模式`、`生成倍率组`→`生成高低倍率组`、`屏蔽国外QUIC`→`屏蔽代理QUIC流量`），`feb68ce` 又把图标/规则集 CDN 从 `cdn.jsdmirror.com` 换成 `fastly.jsdelivr.net`，并删掉 `DOMAIN,cdn.jsdmirror.com,直连` 及其上方注释。CI 表现：`rate-default-off` / `quic-default-on` / `prefix-comment` / `prefix-domains` 四个补丁锚点全部失配 → `apply` 注入 0 处、两个脚本「1 个补丁失败，内容未写入」→ 运行 `42138067826` 失败并开 issue。**修法三条，都有普遍意义**：① 开关类补丁的 `anchor` / `marker` / `text` 跟着改名，**fork 的默认值（`生成高低倍率组: false`、`屏蔽代理QUIC流量: true`）不动**——改名的是键，不是取舍；② 前置直连从「锚上游的 CDN 行」改成「`insertAfter` 锚 `const prefixRules = [`」，注释与三条域名合并成单条补丁，并把 `custom-ruleset-rules` 的 `['', '  // 私有网络直连', ...]` 首行空行去掉（上游删 CDN 行时把那个空行一起删了，锚点跟着废）；③ **凡是「按键名引用选项」的地方都要一起搜**：`.github/workflows/upstream-sync.yaml` 里 `gen-config` 的 `极简模式` 必须改成 `极简国内外分流模式`，因为 `Tools/gen-config.js` 用 `Object.assign(ruleOptionsEnable, options)`，键名写错**不报错**，只会让 `full-minimal` 那条内核校验静默退化成默认配置；`Test/suites/*` 里 fork 遗留的 `withOptions(api, { 极简模式: ... })` 同理（改名后断言才会真的红）。**顺带记一条更一般的判断**：上游「只改名不改语义」的提交在 `compare` 里看起来无害，但只要改名落在锚点或选项键上就是硬失败/静默失效，别因为它 `+/-` 行数小就跳过。
+- **2026-11-06 同步失败复盘：上游「统一开关命名」+「换 CDN」一次打断 4 个锚点**：上游 `b0ea9e4` 把三个开关改名（`极简模式`→`极简国内外分流模式`、`生成倍率组`→`生成高低倍率组`、`屏蔽国外QUIC`→`屏蔽代理QUIC流量`），`feb68ce` 又把图标/规则集 CDN 从 `cdn.jsdmirror.com` 换成 `fastly.jsdelivr.net`，并删掉 `DOMAIN,cdn.jsdmirror.com,直连` 及其上方注释。CI 表现：`rate-default-off` / `quic-default-on` / `prefix-comment` / `prefix-domains` 四个补丁锚点全部失配 → `apply` 注入 0 处、两个脚本「1 个补丁失败，内容未写入」→ 运行 `42138067826` 失败并开 issue。**修法三条，都有普遍意义**：① 开关类补丁的 `anchor` / `marker` / `text` 跟着改名，**fork 的默认值（`生成高低倍率组: false`、`屏蔽代理QUIC流量: true`）不动**——改名的是键，不是取舍；② 前置直连从「锚上游的 CDN 行」改成「`insertAfter` 锚 `const prefixRules = [`」，注释与三条域名合并成单条补丁，并把 `custom-ruleset-rules` 的 `['', '  // 私有网络直连', ...]` 首行空行去掉（上游删 CDN 行时把那个空行一起删了，锚点跟着废）；③ **凡是「按键名引用选项」的地方都要一起搜**：`.github/workflows/upstream-sync.yaml` 里 `gen-config` 的 `极简模式` 必须改成 `极简国内外分流模式`，因为 `Tools/gen-config.js` 用 `Object.assign(ruleOptionsEnable, options)`，键名写错**不报错**，只会让 `full-minimal` 那条内核校验静默退化成默认配置；`Test/suites/*` 里 fork 遗留的 `withOptions(api, { 极简模式: ... })` 同理（改名后断言才会真的红）。**顺带记一条更一般的判断**：上游「只改名不改语义」的提交在 `compare` 里看起来无害，但只要改名落在锚点或选项键上就是硬失败/静默失效，别因为它 `+/-` 行数小就跳过。**同一批还把 `suites/integration.js` 里 9 条 fork 用例迁进了 `fork.js`**（见「改动流程」），从此 Test 目录对上游只剩 `run-tests.js` 的挂载行与新文件本身。
 
 ## 相关
 

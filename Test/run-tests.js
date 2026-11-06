@@ -53,8 +53,9 @@ async function main() {
 
       runUnitTests(h, api);
       runIntegrationTests(h, api, fx, loadScript, script.file);
-      // fork 独有用例放在独立文件里（上游没有该文件，同步时不会冲突）
-      runForkTests(h, api);
+      // fork 独有用例放在独立文件里（上游没有该文件，同步时不会冲突）。
+      // 需要 fixtures / loadScript / 脚本路径才能在 end-to-end 用例里注入自定义节点。
+      runForkTests(h, api, { fx, loadScript, scriptFile: script.file });
       printDemo(api, script.label, script.meta);
 
       const s = h.summary();
