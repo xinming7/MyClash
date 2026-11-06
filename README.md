@@ -77,8 +77,8 @@ https://raw.githubusercontent.com/xinming7/MyClash/stable/Script/Script.js
 | -------- | --------------------------------------------------------------------------------------------------------------------- |
 | 策略组   | 内置多个分流策略组，每个都可单独开关，根据节点自动生成地区策略组，可选择地区自动选择、手动选择及高 / 低倍率组、家宽组 |
 | 节点处理 | 过滤高倍率、低倍率及非地区节点，可统一设置 IPv4 / IPv6 优先                                                           |
-| 分流     | 可将全部节点加入分流策略组，也可启用极简模式                                                                          |
-| 网络     | 可选屏蔽国外 QUIC 流量                                                                                                |
+| 分流     | 可将全部节点加入分流策略组，也可启用极简国内外分流模式                                                                |
+| 网络     | 可选屏蔽代理 QUIC 流量                                                                                                |
 | 高级     | 支持自定义节点与链式代理                                                                                              |
 | 兼容     | 自动处理节点 hosts 映射及机场私有 DNS                                                                                 |
 
@@ -223,4 +223,3 @@ AGENTS.md 里引用的脚本行号由 `Tools/check-doc-refs.js` 守着：它把�
 - [YiXuanZX/rules](https://github.com/YiXuanZX/rules)
 - [appshubcc/bett-rules](https://github.com/appshubcc/bett-rules)
 - [Koolson/Qure](https://github.com/Koolson/Qure)
-- [jsdmirror/JSDMirror](https://github.com/jsdmirror/JSDMirror)
