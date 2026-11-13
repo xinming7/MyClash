@@ -33,7 +33,13 @@ const { applyFeaturesToContent, findAll, toCandidates } = require('./lib/patch-e
 const { FEATURES } = require('./lib/feature-manifest');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const FILES = { full: 'Script/mihomoScript.js', lite: 'Script/Script.js' };
+// 4 个派生目标都要体检：2026-11-13 起 Config 也走补丁清单
+const FILES = {
+  full: 'Script/mihomoScript.js',
+  lite: 'Script/Script.js',
+  'config-full': 'Config/mihomoConfig.yaml',
+  'config-lite': 'Config/mihomoConfigLite.yaml',
+};
 const DEFAULT_REF = 'upstream/main';
 
 const C = {
@@ -90,10 +96,11 @@ function parseArgs(argv) {
 
 // ---------- 清单展开 ----------
 
-/** 补丁适用的版本：补丁级 only 优先于特性级 only */
+/** 补丁适用的版本：补丁级 only 优先于特性级 only；都没写时按 target 取默认组 */
 function flavorsOf(feature, patch) {
   const only = patch.only || feature.only;
-  return only ? [only] : ['full', 'lite'];
+  if (only) return [only];
+  return feature.target === 'config' ? ['config-full', 'config-lite'] : ['full', 'lite'];
 }
 
 /** 按补丁引擎的规则取出某个版本的字段（字符串 / {full,lite} 对象） */
@@ -136,7 +143,7 @@ function classify(line) {
 
 /** 收集每个版本里所有补丁的输入文本，用来判断锚点是否由别的补丁生成 */
 function collectProducedTexts() {
-  const byFlavor = { full: [], lite: [] };
+  const byFlavor = Object.fromEntries(Object.keys(FILES).map((f) => [f, []]));
   for (const feature of FEATURES) {
     for (const patch of feature.patches) {
       for (const flavor of flavorsOf(feature, patch)) {
@@ -286,7 +293,7 @@ function pad(text, width) {
 }
 
 function printReport({ summary, rows }) {
-  console.log(`${c('bold', '锚点体检')}  ${c('dim', '把两个脚本回放到上游原版，检查每个锚点还能不能用')}`);
+  console.log(`${c('bold', '锚点体检')}  ${c('dim', '把 4 个派生目标回放到上游原版，检查每个锚点还能不能用')}`);
   console.log(`上游引用：${summary.ref}`);
   console.log(
     `规模：${summary.patchFlavorPairs} 个「补丁 × 版本」组合 / ${summary.patches} 个补丁 / ${summary.features} 个特性`,
@@ -296,7 +303,7 @@ function printReport({ summary, rows }) {
   const f = summary.fresh;
   const icons = { applied: '✔', skipped: '~', failed: '✘' };
   console.log(c('bold', '第一层：全新注入实测'));
-  for (const fl of ['full', 'lite']) {
+  for (const fl of Object.keys(f)) {
     const s = f[fl];
     const mark = s.failed ? c('red', '✘') : c('green', '✔');
     console.log(

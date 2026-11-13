@@ -19,6 +19,7 @@
   - 单跑某项：`node Test/run-tests.js --node`、`--es2020`、`--quickjs`
   - npm 别名：`npm --prefix Test test`、`npm --prefix Test run test:quickjs`、`npm --prefix Test run test:es2020`
 - 同步上游：`node Tools/sync-upstream.js compare --fetch`（差异报告 + 特性在位检查）
+  - 注入对象是 **4 个派生目标**：`Script/mihomoScript.js`、`Script/Script.js`、`Config/mihomoConfig.yaml`、`Config/mihomoConfigLite.yaml`
   - 注入特性：`node Tools/sync-upstream.js apply --dry-run` 确认后去掉 `--dry-run`
   - 只查不改：`node Tools/sync-upstream.js verify`（适合放进 CI）
   - 回放校验：`node Tools/sync-upstream.js replay [--ref upstream/main] [--json]`，确认「脚本 == 上游 + 清单」，非 0 退出即有未声明漂移
@@ -67,12 +68,11 @@ CI 的 `format_and_test` 与 `upstream-sync` 里都是两条命令并列。`run-
 
 ## 部署与 CI
 
-四个 workflow：`format_and_test.yaml`（校验）、`upstream-sync.yaml`（自动同步上游）、`release.yaml`（打 tag 后快进 stable）、`release-drift.yaml`（stable 积压告警）。
+五个 workflow：`format_and_test.yaml`（**上游原样，不要改**）、`fork-ci.yaml`（fork 自己的校验）、`upstream-sync.yaml`（自动同步上游）、`release.yaml`（打 tag 后快进 stable）、`release-drift.yaml`（stable 积压告警）。
 
-- `format_and_test` 触发：`push`（限定 `main` + 路径 `Script/*`、`Test/**`、`Tools/**`、`**/*.md`、`**/*.yaml`、`**/*.yml`、`.prettierrc*`）、同样路径的 `pull_request`、`workflow_dispatch`。**没有 release/artifact**：产物就是 raw URL 本身。
-- job `format`（PR 时跳过，`contents: write`）：装 prettier 后对受控 `.js/.yml/.yaml` 跑 `prettier --write`，有 diff 就以 `github-actions[bot]` 提交 `chore: auto format` 并 push。
-- job `test`（`needs: format`）：`npm --prefix Test install` → `node Tools/sync-upstream.js verify` → `node Test/run-tests.js`。**verify 放在测试前**，因为它秒级返回，且是唯一能发现「特性被上游删掉但测试仍全绿」的检查。
-- job `doc-refs`（并行，无依赖）：`node Tools/check-doc-refs.js --strict`。文档行号漂移在这里变红；`--strict` 会把「文档里出现未登记的行号引用」也判成失败，防止有人绕过校验表直接写行号。改 `.md` 也会触发本 workflow（`**/*.md` 在 paths 里），所以纯文档改动同样会被检查。
+- `format_and_test`（**上游文件，保持原样**）：`push`（`main` + `Script/*`、`Test/**`、`**/*.yaml|yml`、`.prettierrc*`）+ 同路径 PR + `workflow_dispatch`；job `format` 跑 `prettier --write` 并以 bot 提交 `chore: auto format`，job `test` 跑 `node Test/run-tests.js`。它只覆盖上游自己的逻辑，**fork 需要的东西一律不往这里加**。
+- `fork-ci`（fork 自己的校验，新文件，随便改）：同样路径 + `Tools/**` + `**/*.md` + `Config/*`。单 job `check`，顺序是 ①`prettier --check`（只查不改，避免 bot 提交与 sync 抢 main）②`node Tools/sync-upstream.js verify` ③`node Test/run-tests.js` ④`node Test/run-fork-tests.js` ⑤`node Tools/check-doc-refs.js --strict`。**verify 放在测试前**，因为它秒级返回，且是唯一能发现「特性被上游删掉但测试仍全绿」的检查。
+- 为什么拆两份：`format_and_test.yaml` 是上游的施工区，每往里加一行就等于给上游改动埋一个合并冲突（2026-11-13 的 `Test/run-tests.js` 冲突就是这么来的）。代价是 CI 多跑一次上游测试（约 20 秒）。
 - `release` 与 `release-drift` 的细节见「分发与发布」。
 - **`upstream-sync` 推 main 不会触发 `format_and_test`**：它用 workflow 自带的 `GITHUB_TOKEN` 推送，而 GitHub
   明确规定「用 `GITHUB_TOKEN` 产生的 push 不会触发新的 workflow」，所以同步落地后 `doc-refs` 与 prettier 这两项
@@ -115,7 +115,7 @@ git push origin vX.Y.Z        # 触发 release workflow，它把 stable 快进�
 
 `.github/workflows/upstream-sync.yaml` 每天 20:00 UTC（北京时间次日 04:00）检查上游，也支持手动 `workflow_dispatch`（可指定 `ref`，可勾 `dry_run` 只验证不推送）。
 
-**核心思路：两个脚本是「上游原版 + 特性清单」的派生产物，不是合并对象。** 因此冲突时不做人工式合并，而是取上游侧再重新注入，正确性由 `replay` 逐字节保证。
+**核心思路：两个脚本 + 两个静态配置是「上游原版 + 特性清单」的派生产物，不是合并对象。** 因此冲突时不做人工式合并，而是取上游侧再重新注入，正确性由 `replay` 逐字节保证。
 
 流程：预检（`replay` 基准 = 上次已合并的上游提交）→ 建临时分支 `sync/upstream-<时间戳>` → 合并 → 注入 → verify → 幂等二次 apply → `replay --ref upstream` → 跑测试（`run-tests.js` + `run-fork-tests.js`）→ **内核校验八份配置** → 全绿才 merge 到 main 并 push（推的是 `main`，不是 `stable`，所以这一步不会直接影响客户端）。
 
@@ -126,7 +126,7 @@ git push origin vX.Y.Z        # 触发 release workflow，它把 stable 快进�
 | 级别 | 条件 | 动作 |
 | --- | --- | --- |
 | L0 直合 | `git merge` 无冲突 | 直接注入 + 五项校验 |
-| L1 重建 | 冲突**只在** `Script/mihomoScript.js`、`Script/Script.js` | `merge --abort` → `git merge -X theirs` → `apply` 重新注入。**前置条件：预检 `replay` 通过**（否则说明 main 有未声明漂移，重建会丢代码，此时直接失败转人工） |
+| L1 重建 | 冲突**只在** 4 个派生目标上（`Script/mihomoScript.js`、`Script/Script.js`、`Config/mihomoConfig.yaml`、`Config/mihomoConfigLite.yaml`） | `merge --abort` → `git merge -X theirs` → `apply` 重新注入。**前置条件：预检 `replay` 通过**（否则说明 main 有未声明漂移，重建会丢代码，此时直接失败转人工） |
 | L2 人工 | 冲突含其他文件，或任一补丁 anchor 失败 | 中止，main 不动，开 issue |
 
 **失败与回滚**：全程在临时分支，未通过校验不碰 main，失败即丢弃分支 —— 天然回滚，无需 reset。已合并后发现问题的回退方式：`git revert -m 1 <merge-sha>`。已知良好版本看 tag（`v1.2.0` 起）。
@@ -168,7 +168,7 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
 - **本 fork 有意偏离上游的地方**（同步时别顺手改回去）：`生成高低倍率组` 默认 `false`（上游 `true`，**仅全量版**，精简版保持上游的 `true`；上游 2026-11-06 前叫 `生成倍率组`）；`屏蔽代理QUIC流量` 默认 `true`（上游 2026-11-05 起 `false`，**两版都改**，补丁 `quic-default-on`，见下条；上游 2026-11-06 前叫 `屏蔽国外QUIC`）；新增 VG 家宽功能（`vgRegex`、`autoExcludeRegex`、`vgCfGroups`，**仅全量版**），其中 `vgCfGroupNames`（`Script/mihomoScript.js:1239` `默认代理`、`Script/mihomoScript.js:1262` 分流组、`Script/mihomoScript.js:1288` `漏网之鱼`、`Script/mihomoScript.js:1305` GLOBAL；上游 2026-11-12 把分流组的 if/else 收成嵌套三元后，原来的两处分流组引用合并成一处）**有意注入所有分流策略组**，便于把家宽节点作为任意分流目标，不是遗漏；自动选择组里「自动选择」排在 `proxies` 首位（上游排末位，**仅全量版**）。**精简版已无任何 GitHub 补丁**（2026-11-05 按需求删除 `lite-github-switch` / `lite-github-service`，精简版完全跟随上游、没有 `GitHub` 组）。**链式代理已不在偏离清单里**：2026-11-03 起完全跟随上游，连 `dialer-proxy` 语义也不改（上游会覆盖用户已有值、且关闭后不清洗悬空引用，这两点作为已知限制记录在 README）。
 - **`屏蔽代理QUIC流量` 的默认值与实现都变过，且本 fork 有意与上游不同**：上游 2026-11-05 `a65d318` 把默认值从 `true` 改成 `false`，`b9bd75e` 又调了规则细节，最终规则是 `AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((OR,((RULE-SET,cn),(RULE-SET,cn_ip,no-resolve)))))),REJECT`。**规则实现完全跟随上游，只把默认值改回 `true`**（补丁 `quic-default-on`，两版各一处 `屏蔽代理QUIC流量: false,` → `true`；上游 2026-11-06 `b0ea9e4` 把开关从 `屏蔽国外QUIC` 统一改名成 `屏蔽代理QUIC流量`，补丁的 `anchor` / `marker` / `text` 已同步改名，**默认值不变**）。**两个静态 `Config/*.yaml` 里的同名规则也已取消注释**（上游原样是注释掉的，注释文案改成「本 fork 默认启用」）——这两行是手工改的、不在补丁清单里，上游下次动这段会产生冲突，按 fork 意图保留启用即可。同步上游时如果看到这条被判「已存在」而跳过，属正常；如果 `replay` 报锚点找不到，说明上游又改了这行的写法（当前注释是「是否屏蔽非国内目标的 QUIC 流量」），按提示更新 `anchor` 即可。**别把默认值也改成跟随上游**——那是本 fork 明确的取舍，用户升级后 QUIC 仍应被屏蔽。
 - **上游家宽节点组与本 fork VG 家宽是两套语义，别合并**：上游 `d906c45` 的「家宽节点」组用关键词归类（`homeRegionDefinitions` 正则 `家宽|住宅|原生\s*IP|家庭宽带|ISP|RES|residential`），受 `生成家宽节点组` 开关控制；本 fork 的 `VG家宽` / `🏠 家宽自动` 只认 `vgRegex` 的 `🏠 XX-家宽-NN` 固定格式，受 `VG` 开关控制。两者靠「VG 开启时 `buildRegionGroups` 先跳过 VG 节点」保证不重复收录（`Test/suites/integration.js` 有对应用例锁定）。**改任意一边都要先跑这两条用例**。
-- **`Tools/sync-upstream.js` 的特性清单是唯一真源**：新增 fork 特性时改 `Tools/lib/feature-manifest.js`，不要只手改脚本——否则下次同步会被上游覆盖。判断注入器是否还准确的方法：把两个脚本临时换成 `git show upstream/main:Script/xxx.js` 后跑 `apply`，结果应与当前合并后的脚本**逐字节一致**（2026-10 实测两版 diff 均为 0）。
+- **`Tools/sync-upstream.js` 的特性清单是唯一真源**：新增 fork 特性时改 `Tools/lib/feature-manifest.js`，不要只手改脚本——否则下次同步会被上游覆盖。判断注入器是否还准确的方法：把 4 个目标临时换成 `git show upstream/main:<path>` 后跑 `apply`，结果应与工作区**逐字节一致**——直接跑 `node Tools/sync-upstream.js replay` 就行，它做的就是这件事（2026-11-13 起覆盖脚本 + Config 共 4 个文件）。
 - **VG 开关的职责边界是收敛过的，别再把无关东西塞进去**：2026-10 做过一次收敛——`custom_proxy` / `custom_direct` 曾和 VG 绑在同一个三元表达式里（关 VG 就整条规则消失），现已解绑为独立「ruleset-builder 自定义规则集」块；`vgRegex` / `autoExcludeRegex` 的节点排除也加了 VG 门控（`Script/mihomoScript.js:1026`、`Script/mihomoScript.js:1255`），否则关闭 VG 时家宽/优选节点会从所有策略组里凭空消失。判断标准：**VG 只管家宽与 CF 前置相关的东西**；自定义规则集、地区组归属、通用节点过滤都与家宽无关，不该受它控制。
 - **空占位必须用户自填**：两个 `Config/*.yaml` 的 `provider1:` 下，`url` 与 `age-secret-key` 都是空串占位，分别填机场订阅链接与解密私钥；仓库内没有任何已提交的订阅或密钥。
 - **改了不 push 等于没改，push 了不发布也等于没改**：jsDelivr 与 raw URL 都按分支/提交取内容。脚本与配置走 `@stable`；图标地址跟随上游（`AIsouler/MyClash@main`），不随本仓库发布变化。只推 `main` 时客户端拿到的仍是上一个 `stable` 提交。发布动作见「分发与发布」一节。
@@ -192,6 +192,9 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
 
 - **2026-11-13 同步失败复盘：fork 只要改上游文件，冲突迟早会来（`Test/run-tests.js`）**：同日上游 `4861619` 把 `Test/lib/es2020-check.js` 改名成 `es2026-check.js`、`runES2020Checks` 改名成 `runES2026Checks`，改的正是 fork 挂载行（`const { runForkTests } = require('./suites/fork');`）的下一行，于是 `Test/run-tests.js` 成了「非注入目标文件」冲突，workflow 按设计中止（run `43339738242`，`mihomoScript.js` 的冲突其实能走 L1，是这一个文件把整单拖进 L2）。**更阴险的是 `-X theirs` 的行为**：冲突解完以后我们的 `require` 那行被上游版本吃掉，而函数体里的 `runForkTests(...)` 调用点却留了下来——如果 workflow 允许这个文件走 L1，结果会是 `runForkTests is not defined`，或者更糟：hook 静默消失、fork 用例一条不跑而全绿。修法是**换入口而不是加白名单**：新建 `Test/run-fork-tests.js`（fork 自己的文件，自带 Harness/loadScript/fixtures 装配），把 `run-tests.js` 还原成上游版本，两个 CI workflow 里并列两条命令。原则：**fork 的代码只允许出现在上游不存在的新文件里**；一旦要改上游文件，先问「能不能改成新增文件 + 自己调用」。
 - **上游「重构同一段代码」会连带打断锚点，一次要看三层**：同一次 `4861619` 把 `serviceConfigs` 里的 if/else 链改写成嵌套三元（`let groupProxies` → `const groupProxies = svc.includeAll ? ... : ...`），同时给 `buildFunctionalGroups` 的返回值/解构加了 `priorityRules` 字段。后果是三个补丁同时失效：`vg-service-allnodes`（锚的赋值语句没了）、`vg-service-inject`（锚的 if/else 分支没了，且 `const` 不能再被空组兜底赋值）、`vg-return`（字段列表多了一项）。**除了锚点，还要检查 marker**——`vg-service-allnodes` 的 marker 原本匹配 `groupProxies = ruleOptionsEnable.VG`，改写成三元后产物是 `? ruleOptionsEnable.VG`，marker 认不出自己，二次 apply 会重注入并撞锚点。**这块是「校验 · 注入幂等」那一步抓出来的**，所以本地改完锚点务必连续跑两次 `apply`（第二次必须是「注入 0 处」），只跑 `replay` 会漏掉这类自伤。
+
+- **共享文件（上游也有、fork 也要改）分三档处理，别一律「fork 覆盖」**：2026-11-13 做过一次系统性收口，判据是「上游改动频率 × 改动行数 × 冲突后修复成本」。① **能挪走的挪走**：`.gitignore` 里 fork 只多一行 `.workbuddy/`（本机会话记忆），已挪进 `.git/info/exclude`，该文件现在与上游逐字节相同——换机器要手动重加一次。② **能派生的派生**：`Config/*.yaml` 上游每 10 个提交有 8 个会动，fork 在里面各有两处固定改动（头部链接、QUIC 屏蔽启用），已用 `target: 'config'` 的清单特性接管，`replay` 覆盖到 4 个目标、L1 白名单也放行这两个文件；现在上游改到 QUIC 相邻行（历史上一定冲突）会被自动重建，实测「上游新增一条直连规则 + 我们的注入」可以共存。③ **确实动不了的就接受冲突**：`README.md` 有 114 行 fork 内容，且文字冲突人工 2 分钟能解，拆成 `FORK.md` 反而牺牲门面可读性，故保留。`format_and_test.yaml` 走的是另一条路：**fork 检查另立 `fork-ci.yaml`**，上游那份还原原样。
+- **`Config/*.yaml` 的 fork 改动也走清单，别手改**：`Tools/lib/feature-manifest.js` 末尾两条特性 `config-brand` / `config-quic-enable`，都带 `target: 'config'`。`patch-engine` 的 `featureAppliesTo()` 按 `flavor` 前缀分区（`full|lite` → 脚本，`config-full|config-lite` → 配置），**脚本补丁绝不会跑进 YAML**（否则脚本锚点在 YAML 里必然找不到、整个文件注入失败）。新增 fork 配置项时照这个模式加，别直接编辑 Config。
 
 ## 相关
 

@@ -114,10 +114,10 @@ jobs:
         if: steps.merge.outputs.result == 'conflict'
         run: |
           CONFLICTS=$(git diff --name-only --diff-filter=U)
-          # 只允许在两个注入目标脚本上自动重建；其余文件的冲突一律人工处理
+          # 只允许在四个注入目标（两个脚本 + 两个静态配置）上自动重建；其余文件的冲突一律人工处理
           for f in $CONFLICTS; do
             case "$f" in
-              Script/mihomoScript.js | Script/Script.js) ;;
+              Script/mihomoScript.js | Script/Script.js | Config/mihomoConfig.yaml | Config/mihomoConfigLite.yaml) ;;
               *)
                 echo "::error file=$f::冲突包含非注入目标文件，需人工处理"
                 git merge --abort

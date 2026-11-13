@@ -26,12 +26,48 @@ class PatchError extends Error {
   }
 }
 
-/** 依据文件名判断脚本版本（全量版 / 精简版） */
+/**
+ * 依据文件名判断目标身份（脚本全量版 / 精简版，静态配置全量版 / 精简版）。
+ *
+ * 2026-11-13 起把 `Config/*.yaml` 也纳入派生体系：上游平均每 10 个提交有 8 个会动
+ * Config，而本 fork 在这两个文件里各有两处固定改动（头部链接、QUIC 屏蔽启用）。
+ * 不纳入的话，上游只要改到那几行就是 git 冲突 → L2 人工；纳入后可由 L1 取上游侧重建。
+ */
+const FLAVOR_LABELS = {
+  full: '全量版脚本',
+  lite: '精简版脚本',
+  'config-full': '全量版配置',
+  'config-lite': '精简版配置',
+};
+
 function flavorOf(filePath) {
   const base = path.basename(filePath);
   if (base === 'mihomoScript.js') return 'full';
   if (base === 'Script.js') return 'lite';
-  throw new PatchError(`无法识别的脚本：${base}（只支持 mihomoScript.js / Script.js）`);
+  if (base === 'mihomoConfig.yaml') return 'config-full';
+  if (base === 'mihomoConfigLite.yaml') return 'config-lite';
+  throw new PatchError(
+    `无法识别的目标文件：${base}（只支持 mihomoScript.js / Script.js / mihomoConfig.yaml / mihomoConfigLite.yaml）`,
+  );
+}
+
+/** 供日志用的可读标签 */
+function flavorLabel(flavor) {
+  return FLAVOR_LABELS[flavor] || flavor;
+}
+
+/**
+ * 特性是否适用于该目标。
+ *
+ * `target` 缺省视为 `script`（保持历史行为，老特性不必逐个加字段）：
+ * 脚本补丁只跑在两个脚本上，配置补丁只跑在两个 Config 上，互不串门。
+ * 串门的后果很严重——脚本补丁的锚点在 YAML 里必然找不到，会让整个文件注入失败。
+ */
+function featureAppliesTo(feature, flavor) {
+  const target = flavor.startsWith('config') ? 'config' : 'script';
+  if ((feature.target || 'script') !== target) return false;
+  if (feature.only && feature.only !== flavor) return false;
+  return true;
 }
 
 /** 允许补丁字段写成字符串，或写成 { full, lite } 按目标脚本取值 */
@@ -217,7 +253,7 @@ function applyFeaturesToContent(content, flavor, features, options = {}) {
   let failed = false;
 
   for (const feature of features) {
-    if (feature.only && feature.only !== flavor) continue;
+    if (!featureAppliesTo(feature, flavor)) continue;
     if (options.only && !options.only.includes(feature.id)) continue;
 
     const featureReport = { id: feature.id, title: feature.title, ok: true, patches: [] };
@@ -258,6 +294,8 @@ function applyFeaturesToFile(filePath, features, options = {}) {
 module.exports = {
   PatchError,
   flavorOf,
+  flavorLabel,
+  featureAppliesTo,
   applyPatch,
   applyFeaturesToContent,
   applyFeaturesToFile,

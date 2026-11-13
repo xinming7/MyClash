@@ -508,10 +508,63 @@ const FEATURES = [
         only: 'full',
         marker: /^\s*\.\.\.vgCfGroups,$/m,
         op: 'insertAfter',
-        // 锚点尾部必须是 directGroup,（insertAfter 插在锚点最后一行的后面）：
+        // 锚点尾部必须是 directGroup,（insertAfter 插在锚点最后一行之后）：
         // 若把 `...generatedRegionGroups,` 也写进锚点，VG 组会跑到地区组之后，与历史产物顺序不符。
         anchor: ['...(chainGroup ? [chainGroup] : []),', 'directGroup,'],
         text: '    ...vgCfGroups,',
+      },
+    ],
+  },
+
+  // ---------------- 静态配置（Config/*.yaml） ----------------
+  // 上游平均每 10 个提交有 8 个会动 Config，而这两个文件里各有两处固定改动。
+  // 纳入派生体系后，L1 重建可以把它们一起「取上游侧 + 重新注入」，不必再人工解冲突。
+  // 注意 `target: 'config'`：脚本补丁与配置补丁严格分区，否则脚本锚点会在 YAML 里乱撞。
+  {
+    id: 'config-brand',
+    title: '静态配置头部来源指向本 fork',
+    target: 'config',
+    patches: [
+      {
+        id: 'config-brand-full',
+        why: '客户端直接导入本仓库的 raw URL，配置文件头部应指向 fork 而非上游',
+        only: 'config-full',
+        marker: /配置链接：https:\/\/raw\.githubusercontent\.com\/xinming7\/MyClash\/main\/Config\/mihomoConfig\.yaml/,
+        op: 'replace',
+        anchor: '#  配置链接：https://raw.githubusercontent.com/AIsouler/MyClash/main/Config/mihomoConfig.yaml',
+        text: '#  配置链接：https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfig.yaml',
+      },
+      {
+        id: 'config-brand-lite',
+        why: '同上，精简版只差文件名',
+        only: 'config-lite',
+        marker:
+          /配置链接：https:\/\/raw\.githubusercontent\.com\/xinming7\/MyClash\/main\/Config\/mihomoConfigLite\.yaml/,
+        op: 'replace',
+        anchor: '#  配置链接：https://raw.githubusercontent.com/AIsouler/MyClash/main/Config/mihomoConfigLite.yaml',
+        text: '#  配置链接：https://raw.githubusercontent.com/xinming7/MyClash/main/Config/mihomoConfigLite.yaml',
+      },
+    ],
+  },
+
+  {
+    id: 'config-quic-enable',
+    title: '静态配置里 QUIC 屏蔽默认启用（两版）',
+    target: 'config',
+    patches: [
+      {
+        id: 'config-quic-enable',
+        why: '上游把这条规则注释掉了；本 fork 两版都默认启用（与脚本里 quic-default-on 的取舍一致）',
+        marker: /本 fork 默认启用/,
+        op: 'replace',
+        anchor: [
+          '  # 禁用国外 QUIC 流量（默认不启用，如果想启用请删除前面的#号注释）',
+          '  # - AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((OR,((RULE-SET,cn),(RULE-SET,cn_ip,no-resolve)))))),REJECT',
+        ],
+        text: [
+          '  # 禁用国外 QUIC 流量（本 fork 默认启用；不想启用请在前面的 - 前加 # 注释掉）',
+          '  - AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((OR,((RULE-SET,cn),(RULE-SET,cn_ip,no-resolve)))))),REJECT',
+        ].join('\n'),
       },
     ],
   },

@@ -6,8 +6,6 @@ on:
     paths:
       - 'Script/*'
       - 'Test/**'
-      - 'Tools/**'
-      - '**/*.md'
       - '**/*.yaml'
       - '**/*.yml'
       - '.prettierrc*'
@@ -15,8 +13,6 @@ on:
     paths:
       - 'Script/*'
       - 'Test/**'
-      - 'Tools/**'
-      - '**/*.md'
       - '**/*.yaml'
       - '**/*.yml'
       - '.prettierrc*'
@@ -85,33 +81,5 @@ jobs:
       - name: install dependencies
         run: npm --prefix Test install
 
-      # fork 特性是否完整：上游删掉代码导致特性丢失时，测试可能仍然全绿（默认值恰好相同），
-      # 这一步是唯一能提前发现「隐性回归」的检查。
-      - name: verify fork features
-        run: node Tools/sync-upstream.js verify
-
       - name: run tests
         run: node Test/run-tests.js
-
-      # fork 用例独立入口：不再挂在上游的 run-tests.js 里，避免上游重构该文件时
-      # 在「非注入目标文件」上产生合并冲突（2026-11-13 run 43339738242 的成因）。
-      - name: run fork tests
-        run: node Test/run-fork-tests.js
-
-  # 文档里的 `Script/mihomoScript.js:1262` 这类引用会随脚本增删悄悄漂移。
-  # 校验逻辑与「特征串」表都在 Tools/ 下，这里只负责让它成为硬性检查：
-  # --strict 表示「文档里出现未登记的行号引用」也算失败，防止绕开维护。
-  doc-refs:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: checkout code
-        uses: actions/checkout@v6
-
-      - name: setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-
-      - name: check doc line references
-        run: node Tools/check-doc-refs.js --strict

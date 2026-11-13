@@ -11,7 +11,7 @@
  *
  * 三个子命令：
  *   compare  对比本地与上游的分叉情况，并检查本 fork 特性是否都还在位
- *   apply    把本 fork 特性幂等注入到 Script/ 下的两个脚本（可 --dry-run 只看不改）
+ *   apply    把本 fork 特性幂等注入到 4 个目标（两个脚本 + 两个静态配置，可 --dry-run 只看不改）
  *   verify   只做特性在位检查（适合放进 CI / pre-commit）
  *
  * 用法：
@@ -32,13 +32,23 @@ const {
   applyFeaturesToContent,
   applyFeaturesToFile,
   featureStatus,
+  featureAppliesTo,
+  flavorLabel,
   flavorOf,
   PatchError,
 } = require('./lib/patch-engine');
 const { FEATURES } = require('./lib/feature-manifest');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const DEFAULT_FILES = ['Script/mihomoScript.js', 'Script/Script.js'];
+// 4 个派生目标：两个脚本 + 两个静态配置。
+// Config 也纳入的原因：上游每 10 个提交有 8 个会动 Config，而本 fork 在每个配置里各有
+// 两处固定改动（头部链接、QUIC 屏蔽启用）；不纳入就只能靠人工解冲突。
+const DEFAULT_FILES = [
+  'Script/mihomoScript.js',
+  'Script/Script.js',
+  'Config/mihomoConfig.yaml',
+  'Config/mihomoConfigLite.yaml',
+];
 const UPSTREAM_REMOTE = 'upstream';
 const SCRIPT_FILES = DEFAULT_FILES;
 
@@ -179,9 +189,9 @@ function cmdCompare(opts) {
     }
     const flavor = flavorOf(abs);
     const lines = fs.readFileSync(abs, 'utf8').split('\n');
-    console.log(`\n  ${file} ${c('dim', `(${flavor === 'full' ? '全量版' : '精简版'})`)}`);
+    console.log(`\n  ${file} ${c('dim', `(${flavorLabel(flavor)})`)}`);
     for (const feature of FEATURES) {
-      if (feature.only && feature.only !== flavor) continue;
+      if (!featureAppliesTo(feature, flavor)) continue;
       const st = featureStatus(lines, feature, flavor);
       if (st.ok) {
         console.log(`    ${c('green', '✔')} ${feature.title}`);
@@ -233,7 +243,7 @@ function cmdApply(opts) {
     }
 
     const report = applyFeaturesToFile(abs, FEATURES, { only, keepGoing: false });
-    console.log(c('bold', `\n=== ${file} ${c('dim', `(${report.flavor === 'full' ? '全量版' : '精简版'})`)} ===`));
+    console.log(c('bold', `\n=== ${file} ${c('dim', `(${flavorLabel(report.flavor)})`)} ===`));
 
     for (const feature of report.features) {
       const head = feature.ok ? c('green', '✔') : c('red', '✘');
@@ -303,7 +313,7 @@ function cmdVerify(opts) {
     const flavor = flavorOf(abs);
     const lines = fs.readFileSync(abs, 'utf8').split('\n');
     for (const feature of FEATURES) {
-      if (feature.only && feature.only !== flavor) continue;
+      if (!featureAppliesTo(feature, flavor)) continue;
       const st = featureStatus(lines, feature, flavor);
       if (!st.ok) {
         missing += st.missing.length;
@@ -315,7 +325,7 @@ function cmdVerify(opts) {
     console.log(c('red', `\n特性校验失败：${missing} 处缺失。`));
     return 1;
   }
-  console.log(c('green', '特性校验通过：两个脚本的 fork 特性均完整。'));
+  console.log(c('green', `特性校验通过：${files.length} 个目标文件的 fork 特性均完整。`));
   return 0;
 }
 

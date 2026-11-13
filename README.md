@@ -149,14 +149,14 @@ https://raw.githubusercontent.com/xinming7/MyClash/stable/Config/mihomoConfigLit
 # 1. 对比：上游领先哪些提交（标出哪些改了脚本）+ 本 fork 特性是否还在位
 node Tools/sync-upstream.js compare --fetch
 
-# 2. 注入：把本 fork 特性幂等地注入 Script/ 下两个脚本（先 dry-run 看改动）
+# 2. 注入：把本 fork 特性幂等地注入 4 个派生目标（两个脚本 + 两个静态配置，先 dry-run 看改动）
 node Tools/sync-upstream.js apply --dry-run
 node Tools/sync-upstream.js apply
 
 # 3. 校验：只检查特性完整性，可用于 CI
 node Tools/sync-upstream.js verify
 
-# 4. 回放：确认「当前脚本 == 上游原版 + 特性清单」，无未声明漂移
+# 4. 回放：确认「当前文件 == 上游原版 + 特性清单」，无未声明漂移（4 个目标逐个比对）
 node Tools/sync-upstream.js replay
 
 # 5. 体检：上游大改前先看哪些锚点已经贴近断裂边缘（死锚点会非 0 退出）

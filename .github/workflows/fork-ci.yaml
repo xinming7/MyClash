@@ -1,0 +1,76 @@
+name: fork-ci
+
+# 本 fork 自己的校验：特性在位 / 两套测试 / 文档行号 / fork 目录格式。
+#
+# 为什么单独一份而不是往 `format_and_test.yaml` 里加步骤：那个文件是上游的施工区，
+# 每加一行都等于给上游改动埋一个合并冲突——2026-11-13 的同步失败（run 43339738242）
+# 就是 `Test/run-tests.js` 这种「非注入目标文件」冲突把整单拖进 L2 的。
+# 上游那份保持原样继续跑它自己的 format + test，互不干扰。
+
+on:
+  push:
+    branches: ['main']
+    paths:
+      - 'Script/*'
+      - 'Config/*'
+      - 'Test/**'
+      - 'Tools/**'
+      - '**/*.md'
+      - '**/*.yaml'
+      - '**/*.yml'
+      - '.prettierrc*'
+  pull_request:
+    paths:
+      - 'Script/*'
+      - 'Config/*'
+      - 'Test/**'
+      - 'Tools/**'
+      - '**/*.md'
+      - '**/*.yaml'
+      - '**/*.yml'
+      - '.prettierrc*'
+  workflow_dispatch:
+
+concurrency:
+  group: fork-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v6
+
+      - name: setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: install dependencies
+        run: npm --prefix Test install
+
+      # 先跑格式：失败最快、修复最便宜。这里只做 --check，不做 --write 自动提交——
+      # 自动提交会与 upstream-sync 的推送抢 main，而且掩盖了「谁没格式化」。
+      - name: check formatting
+        run: |
+          npm install -g prettier
+          prettier --check "Script/*.js" "Tools/**/*.js" "Test/suites/*.js" "Test/run-fork-tests.js" ".github/workflows/*.yaml" "Config/*.yaml"
+
+      # fork 特性是否完整：上游删掉代码导致特性丢失时，测试可能仍然全绿（默认值恰好相同），
+      # 这一步是唯一能提前发现「隐性回归」的检查。
+      - name: verify fork features
+        run: node Tools/sync-upstream.js verify
+
+      # 两个入口都要跑：上游套件 + fork 套件（fork 用例不再挂在上游的 run-tests.js 里）
+      - name: run upstream tests
+        run: node Test/run-tests.js
+
+      - name: run fork tests
+        run: node Test/run-fork-tests.js
+
+      # 文档里的 `Script/mihomoScript.js:1262` 这类引用会随脚本增删悄悄漂移。
+      # --strict 表示「文档里出现未登记的行号引用」也算失败，防止绕开维护。
+      - name: check doc line references
+        run: node Tools/check-doc-refs.js --strict
