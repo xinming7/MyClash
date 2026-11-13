@@ -2,37 +2,32 @@
   "note": "文档里保留的行号引用及其「特征串」（needle）。约定：特征串必须**从被引用的那一行开始**——check-doc-refs.js 靠这一点把行号重新定位，多行特征串因此可以消歧而不产生偏移歧义。行号可以漂，但起点那行必须仍与 needle 开头吻合；对不上就报错，--fix 会用 needle 找回唯一位置。新增裸行号引用必须先登记，否则 --strict 失败。why 只给人看。",
   "refs": [
     {
-      "ref": "Script/mihomoScript.js:1023",
+      "ref": "Script/mihomoScript.js:1026",
       "needle": "ruleOptionsEnable.VG && (autoExcludeRegex",
-      "why": "节点过滤里的 VG 门控（与 :1283 的判断结构相似，靠特征串区分）"
+      "why": "节点过滤里的 VG 门控（与 :1255 的判断结构相似，靠特征串区分）"
     },
     {
       "ref": "Script/mihomoScript.js:1255",
-      "needle": "groupProxies = ruleOptionsEnable.VG",
-      "why": "地区组的 VG 门控"
+      "needle": "? ruleOptionsEnable.VG",
+      "why": "分流组 includeAll 时的 VG 过滤；上游 2026-11-12 把 if/else 收成嵌套三元后，产物从 `groupProxies = ruleOptionsEnable.VG` 变成 `? ruleOptionsEnable.VG`"
     },
     {
-      "ref": "Script/mihomoScript.js:1234",
+      "ref": "Script/mihomoScript.js:1239",
       "needle": "proxies: [...vgCfGroupNames, ...groupNamesOfSelect, ...baseGroupNames, ...customGroupNames]",
       "why": "默认代理组注入 vgCfGroupNames"
     },
     {
-      "ref": "Script/mihomoScript.js:1264",
-      "needle": "            ...vgCfGroupNames,\n            ...customGroupNames,\n            ...baseGroupNames,\n            ...groupNamesOfSelect,\n            ...(svc.direct ? ['直连'] : []),\n          ]",
-      "why": "第一种分流组（不含全部节点）注入 vgCfGroupNames；跨行特征串用于消歧"
+      "ref": "Script/mihomoScript.js:1262",
+      "needle": "            ...vgCfGroupNames,\n            ...customGroupNames,\n            ...baseGroupNames,\n            ...groupNamesOfSelect,\n            ...(addAllNodesToServiceGroupsEnabled ? allProxiesNames : []),",
+      "why": "分流组注入 vgCfGroupNames；跨行特征串用于消歧。上游 2026-11-12 合并两种分流组写法后，原来 :1264/:1272 两条引用合成这一条"
     },
     {
-      "ref": "Script/mihomoScript.js:1272",
-      "needle": "            ...vgCfGroupNames,\n            ...customGroupNames,\n            ...baseGroupNames,\n            ...groupNamesOfSelect,\n            ...allProxiesNames,",
-      "why": "第二种分流组（含全部节点）注入 vgCfGroupNames；跨行特征串用于消歧"
-    },
-    {
-      "ref": "Script/mihomoScript.js:1300",
+      "ref": "Script/mihomoScript.js:1288",
       "needle": "proxies: ['默认代理', ...vgCfGroupNames, '直连', ...groupNamesOfSelect]",
       "why": "漏网之鱼注入 vgCfGroupNames"
     },
     {
-      "ref": "Script/mihomoScript.js:1317",
+      "ref": "Script/mihomoScript.js:1305",
       "needle": "      ...vgCfGroupNames,\n      ...customGroupNames,\n      ...(chainGroup ? [chainGroup.name] : []),",
       "why": "GLOBAL 注入 vgCfGroupNames；跨行特征串用于消歧"
     }

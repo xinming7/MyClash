@@ -376,53 +376,49 @@ const FEATURES = [
       {
         id: 'vg-service-allnodes',
         why: '「分流组添加所有节点」开启时，自动选择类组也要排除家宽/优选节点',
-        marker: /groupProxies = ruleOptionsEnable\.VG/,
+        // 上游把 if/else 换成嵌套三元后，本补丁的产物是 `? ruleOptionsEnable.VG` 而非赋值语句，
+        // marker 必须跟着改，否则二次 apply 会因为「认不出自己注入的内容」而重注入并撞锚点
+        marker: /groupProxies = svc\.includeAll\n\s*\? ruleOptionsEnable\.VG/,
         op: 'replace',
-        anchor: '      groupProxies = [...allProxiesNames];',
+        // 上游 2026-11-12（4861619）把 if/else 链改写成嵌套三元，且把 `let` 收成 `const`。
+        // 这里顺手改回 `let`：下面 vg-service-inject 的空组兜底要给它重新赋值。
+        anchor: ['    const groupProxies = svc.includeAll', '      ? [...allProxiesNames]', '      : svc.reject'],
         text: [
-          '      groupProxies = ruleOptionsEnable.VG',
+          '    let groupProxies = svc.includeAll',
+          '      ? ruleOptionsEnable.VG',
           '        ? allProxiesNames.filter((name) => !autoExcludeRegex.test(name) && !vgRegex.test(name))',
-          '        : [...allProxiesNames];',
+          '        : [...allProxiesNames]',
+          '      : svc.reject',
         ].join('\n'),
       },
       {
         id: 'vg-service-inject',
         why: '分流策略组注入 VG 组名，并给 includeAll 组加空组兜底',
-        marker: /\? \[\n\s*'默认代理',\n\s*\.\.\.vgCfGroupNames,/,
+        // marker 只认本补丁自己注入的注释，不认上游结构（上游 2026-11-12 已把这段改成嵌套三元）
+        marker: /includeAll 组不能为空/,
         op: 'replace',
+        // 上游 2026-11-12 起这段是嵌套三元的最后一个分支（原先是 if/else 的 else），
+        // 列表项从「单行三元 + 多行数组」变成「单个多行数组」。
         anchor: [
-          '      groupProxies = !addAllNodesToServiceGroupsEnabled',
-          "        ? ['默认代理', ...customGroupNames, ...baseGroupNames, ...groupNamesOfSelect, ...(svc.direct ? ['直连'] : [])]",
           '        : [',
           "            '默认代理',",
           '            ...customGroupNames,',
           '            ...baseGroupNames,',
           '            ...groupNamesOfSelect,',
-          '            ...allProxiesNames,',
+          '            ...(addAllNodesToServiceGroupsEnabled ? allProxiesNames : []),',
           "            ...(svc.direct ? ['直连'] : []),",
           '          ];',
-          '    }',
         ],
         text: [
-          '      groupProxies = !addAllNodesToServiceGroupsEnabled',
-          '        ? [',
-          "            '默认代理',",
-          '            ...vgCfGroupNames,',
-          '            ...customGroupNames,',
-          '            ...baseGroupNames,',
-          '            ...groupNamesOfSelect,',
-          "            ...(svc.direct ? ['直连'] : []),",
-          '          ]',
           '        : [',
           "            '默认代理',",
           '            ...vgCfGroupNames,',
           '            ...customGroupNames,',
           '            ...baseGroupNames,',
           '            ...groupNamesOfSelect,',
-          '            ...allProxiesNames,',
+          '            ...(addAllNodesToServiceGroupsEnabled ? allProxiesNames : []),',
           "            ...(svc.direct ? ['直连'] : []),",
           '          ];',
-          '    }',
           '',
           '    // includeAll 组不能为空：VG 开启时若订阅全是家宽/优选节点，过滤后会是空数组，',
           '    // 而 mihomo 校验阶段要求 select/url-test/load-balance 组必须有 proxies 或 use',
@@ -453,10 +449,13 @@ const FEATURES = [
         // 整段取值字段 + 结尾 `};`：`};` 把 full 的 return 与 main() 的解构区分开，
         // `functionalGroups,` 把 full 的 return 与极简模式的 return 区分开。
         // 上游若在返回值中间插字段，这里会响亮失败——按提示补一行即可。
+        // 上游 2026-11-12（4861619）在 functionalIpRules 与 finalRuleProviders 之间加了 priorityRules，
+        // 返回值与解构同步增加；锚点必须跟着补这一行。
         anchor: [
           'functionalGroups,',
           'functionalRules,',
           'functionalIpRules,',
+          'priorityRules,',
           'finalRuleProviders,',
           'chainGroup,',
           'directGroup,',
@@ -466,6 +465,7 @@ const FEATURES = [
           '    functionalGroups,',
           '    functionalRules,',
           '    functionalIpRules,',
+          '    priorityRules,',
           '    finalRuleProviders,',
           '    chainGroup,',
           '    directGroup,',

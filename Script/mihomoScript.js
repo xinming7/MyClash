@@ -1251,8 +1251,10 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
   for (const svc of serviceConfigs) {
     if (!ruleOptionsEnable[svc.name]) continue;
 
-    const groupProxies = svc.includeAll
-      ? [...allProxiesNames]
+    let groupProxies = svc.includeAll
+      ? ruleOptionsEnable.VG
+        ? allProxiesNames.filter((name) => !autoExcludeRegex.test(name) && !vgRegex.test(name))
+        : [...allProxiesNames]
       : svc.reject
         ? ['REJECT', 'REJECT-DROP', 'PASS']
         : [
@@ -1264,6 +1266,10 @@ function buildFunctionalGroups(filteredProxies, generatedRegionGroups, customize
             ...(addAllNodesToServiceGroupsEnabled ? allProxiesNames : []),
             ...(svc.direct ? ['直连'] : []),
           ];
+
+    // includeAll 组不能为空：VG 开启时若订阅全是家宽/优选节点，过滤后会是空数组，
+    // 而 mihomo 校验阶段要求 select/url-test/load-balance 组必须有 proxies 或 use
+    if (svc.includeAll && groupProxies.length === 0) groupProxies = [...allProxiesNames];
 
     const selected = groupProxies.includes(svc.defaultSelected) ? svc.defaultSelected : undefined;
 

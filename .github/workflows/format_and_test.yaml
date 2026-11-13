@@ -93,6 +93,11 @@ jobs:
       - name: run tests
         run: node Test/run-tests.js
 
+      # fork 用例独立入口：不再挂在上游的 run-tests.js 里，避免上游重构该文件时
+      # 在「非注入目标文件」上产生合并冲突（2026-11-13 run 43339738242 的成因）。
+      - name: run fork tests
+        run: node Test/run-fork-tests.js
+
   # 文档里的 `Script/mihomoScript.js:1262` 这类引用会随脚本增删悄悄漂移。
   # 校验逻辑与「特征串」表都在 Tools/ 下，这里只负责让它成为硬性检查：
   # --strict 表示「文档里出现未登记的行号引用」也算失败，防止绕开维护。
