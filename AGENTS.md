@@ -74,11 +74,12 @@ CI 的 `format_and_test` 与 `upstream-sync` 里都是两条命令并列。`run-
 - `fork-ci`（fork 自己的校验，新文件，随便改）：同样路径 + `Tools/**` + `**/*.md` + `Config/*`。单 job `check`，顺序是 ①`prettier --check`（只查不改，避免 bot 提交与 sync 抢 main）②`node Tools/sync-upstream.js verify` ③`node Test/run-tests.js` ④`node Test/run-fork-tests.js` ⑤`node Tools/check-doc-refs.js --strict`。**verify 放在测试前**，因为它秒级返回，且是唯一能发现「特性被上游删掉但测试仍全绿」的检查。
 - 为什么拆两份：`format_and_test.yaml` 是上游的施工区，每往里加一行就等于给上游改动埋一个合并冲突（2026-11-13 的 `Test/run-tests.js` 冲突就是这么来的）。代价是 CI 多跑一次上游测试（约 20 秒）。
 - `release` 与 `release-drift` 的细节见「分发与发布」。
-- **`upstream-sync` 推 main 不会触发 `format_and_test`**：它用 workflow 自带的 `GITHUB_TOKEN` 推送，而 GitHub
-  明确规定「用 `GITHUB_TOKEN` 产生的 push 不会触发新的 workflow」，所以同步落地后 `doc-refs` 与 prettier 这两项
-  都没人跑。实测 2026-11-06 11:36 那次同步（上游 633f54c 删了 14 行 Emby/emos 代码）后，`AGENTS.md` 里 7 处
-  `Script/mihomoScript.js:行号` 全部下移 14 行，而 CI 一片绿。**每次同步后本地补跑一次
-  `node Tools/check-doc-refs.js --fix --strict` 并提交**；同步 workflow 自己也校验不了这一项（见「自动同步上游」一节的校验清单）。prettier 同理，同步后若脚本被上游重排，需要本地 `npx prettier --check` 兜一次。
+- **`upstream-sync` 推 main 不会触发 `fork-ci` / `format_and_test`**：它用 workflow 自带的 `GITHUB_TOKEN` 推送，而 GitHub
+  明确规定「用 `GITHUB_TOKEN` 产生的 push 不会触发新的 workflow」。历史上这导致同步落地后 `doc-refs` 无人跑：2026-11-06
+  那次（上游 633f54c 删了 14 行 Emby/emos）之后 `AGENTS.md` 里 7 处 `Script/mihomoScript.js:行号` 全部下移 14 行，CI 却一片绿。
+  **现已由同步 workflow 自己兜住**（2026-11-13 起，`校验 · 文档行号引用` 一步在提交前跑 `--fix` 再 `--strict`，修正结果并进同一提交）；
+  非快进重试分支里合并远程 main 之后同样会重跑并自动提交。**prettier 仍是缺口**：同步后若上游脚本被重排导致格式漂移，
+  要本地 `npx prettier --check` 兜一次（`patch-engine` 的产物本身是格式化的，风险主要在手工改动）。
 - 产物：无。dist 就是 raw URL 本身；图标与规则源走 jsDelivr（`fastly.jsdelivr.net`，2026-11-06 起随上游从 `cdn.jsdmirror.com` 切换），改动必须 commit+push 后客户端才拿得到。
 
 ## 分发与发布（2026-11-03 起 `main` 不再直接对外）
@@ -117,7 +118,9 @@ git push origin vX.Y.Z        # 触发 release workflow，它把 stable 快进�
 
 **核心思路：两个脚本 + 两个静态配置是「上游原版 + 特性清单」的派生产物，不是合并对象。** 因此冲突时不做人工式合并，而是取上游侧再重新注入，正确性由 `replay` 逐字节保证。
 
-流程：预检（`replay` 基准 = 上次已合并的上游提交）→ 建临时分支 `sync/upstream-<时间戳>` → 合并 → 注入 → verify → 幂等二次 apply → `replay --ref upstream` → 跑测试（`run-tests.js` + `run-fork-tests.js`）→ **内核校验八份配置** → 全绿才 merge 到 main 并 push（推的是 `main`，不是 `stable`，所以这一步不会直接影响客户端）。
+流程：预检（`replay` 基准 = 上次已合并的上游提交）→ 建临时分支 `sync/upstream-<时间戳>` → 合并 → 注入 → verify → 幂等二次 apply → `replay --ref upstream` → 跑测试（`run-tests.js` + `run-fork-tests.js`）→ **内核校验八份配置** → 文档行号 `--fix` + `--strict` → 全绿才 merge 到 main 并 push（推的是 `main`，不是 `stable`，所以这一步不会直接影响客户端）。
+
+**六项校验** = verify（特性在位）/ 幂等（二次 `apply` 注入 0 处）/ replay（逐字节）/ 测试（上游 + fork 两套）/ mihomo `-t` / 文档行号。前五项是纯代码正确性，第六项是「文档有没有跟着代码漂」——它必须放在同步流程内部，因为 `GITHUB_TOKEN` 的 push 不会触发 `fork-ci`（见「部署与 CI」）。
 
 内核校验用 `Tools/gen-config.js` 生成六份动态产物，连同两个静态 YAML 一起交给 mihomo `-t`（共八份）：`full`（全量开 `VG`）、`full-noVG`（全量默认，`VG` 关——最常用的形态，早期漏了这条等于默认路径没进过内核）、`full-minimal`（`极简国内外分流模式` + `VG`，验解构默认值兜底；选项键必须与脚本里 `ruleOptionsEnable` 的字段名逐字一致）、`full-chain`（`VG` + `链式代理`，并用第 4 个参数注入自定义节点与 🏠/优选 节点，验两套特性共存）、`lite`（精简版默认）、`lite-chain`（精简版 + `链式代理`，链式是两版共有的上游功能，只验全量版容易漏掉精简版）。第 4 个参数支持 `{custom:[...],subscription:[...]}`：前者写进脚本的 `customizeProxies`，后者追加进订阅节点——链式代理在没有自定义节点时会直接抛错，VG 三组也要订阅里真有对应节点才会生成，没有这个入口这两条路径永远进不了内核校验。产物直接输出 JSON —— JSON 是 YAML 1.2 子集，mihomo 可直接解析，所以不需要引入 YAML 依赖。内核版本固定 `1.19.33` 并缓存。这一步补的是「单元测试全绿但配置非法」的盲区：测试验的是逻辑，验不了内核认不认。
 
@@ -125,7 +128,7 @@ git push origin vX.Y.Z        # 触发 release workflow，它把 stable 快进�
 
 | 级别 | 条件 | 动作 |
 | --- | --- | --- |
-| L0 直合 | `git merge` 无冲突 | 直接注入 + 五项校验 |
+| L0 直合 | `git merge` 无冲突 | 直接注入 + 六项校验 |
 | L1 重建 | 冲突**只在** 4 个派生目标上（`Script/mihomoScript.js`、`Script/Script.js`、`Config/mihomoConfig.yaml`、`Config/mihomoConfigLite.yaml`） | `merge --abort` → `git merge -X theirs` → `apply` 重新注入。**前置条件：预检 `replay` 通过**（否则说明 main 有未声明漂移，重建会丢代码，此时直接失败转人工） |
 | L2 人工 | 冲突含其他文件，或任一补丁 anchor 失败 | 中止，main 不动，开 issue |
 
@@ -133,7 +136,7 @@ git push origin vX.Y.Z        # 触发 release workflow，它把 stable 快进�
 
 **告警有三路**：① 开 issue（label `upstream-sync-failed`，已有 open issue 则追加评论），正文含运行链接、排查顺序与回滚命令；② Telegram 推送（需 secrets `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`，未配置时静默跳过）；③ GitHub 运行失败邮件。任一通道自身失败只打 warning，不会盖掉原始错误。
 
-**推送前会对齐远程**：校验期间若有其他 workflow（如 `format_and_test` 的自动格式化）或人工提交推进了 main，直接 push 会因非快进失败。workflow 改为失败后 `fetch` + `merge` 再推，最多 3 次，且对齐后**重跑** verify / replay / 测试，避免推出没验过的组合。
+**推送前会对齐远程**：校验期间若有其他 workflow（如 `format_and_test` 的自动格式化）或人工提交推进了 main，直接 push 会因非快进失败。workflow 改为失败后 `fetch` + `merge` 再推，最多 3 次，且对齐后**重跑** verify / replay / 测试 / 文档行号，避免推出没验过的组合（行号若被远程提交改动，修正会作为一条 `docs:` 提交一起推上去）。
 
 **演练真推（零变更）**：上游没有新提交时想验证推送段，可造一个「main + 空提交」的临时分支当模拟上游，再手动 `workflow_dispatch` 真跑：
 
@@ -146,7 +149,7 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
   -f ref=origin/test/upstream-sim -f dry_run=false
 ```
 
-`AHEAD=1` 能过 gate，合并 → 注入 → 五项校验 → commit → push 全部真实执行，但产物与 main 逐字节相同，raw URL 客户端无感知。确认零变更的方式：`git diff --stat <基线tag> origin/main` 应输出为空。演练完记得删掉远程与本地 `test/upstream-sim`。
+`AHEAD=1` 能过 gate，合并 → 注入 → 六项校验 → commit → push 全部真实执行，但产物与 main 逐字节相同，raw URL 客户端无感知。确认零变更的方式：`git diff --stat <基线tag> origin/main` 应输出为空。演练完记得删掉远程与本地 `test/upstream-sim`。
 
 2026-11-01 用此法完成首推演练：运行 `41257242980`，L0 直合、注入 0 处/跳过 48 处、238 项测试全过、mihomo `-t` 四份全过，`efbf2e9..60fcf9b main -> main` **第 1 次推送即成功**（未走非快进重试）。代价是 main 多两个提交（空提交 + merge commit），文件不变。
 
@@ -186,7 +189,7 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
 
 - **比「锚点失效」更隐蔽的是「marker 被上游原生代码抢先命中」**：补丁先查 marker，命中就跳过，根本不走锚点。如果 marker 绑的是一段**上游也可能出现**的写法，那上游一旦写出同样结构，补丁会被判「已存在」，功能整块丢失，而 `verify`（只查 marker）与 `replay`（marker 也命中，回放自然一致）**双双全绿**。2026-11-03 同步上游 `e0eb0da`（恢复链式代理）时就是这样翻车的：`chain-minimal-return` / `chain-full-global` / `main-destructure` / `main-groups` / `chain-return` 的 marker 都是「上游链式代码的产物」，上游把这套代码写回来后全部命中，`vgCfGroups` / `vgCfGroupNames` 的四处载荷被静默丢弃，**VG 功能整个消失且没有任何一个校验步骤报警**。修法是两条：① marker 只写本 fork 独有的文本（例如 `vg-leak-group` 用 `'默认代理', ...vgCfGroupNames, '直连'`，而不是上游也有的 `'默认代理', '直连', ...`）；② **本地特性的载荷必须回归到「自己的特性」名下**，不要寄居在别人的特性里顺带注入（VG 的四处载荷现在独立成 `vg-return` / `vg-global` / `vg-destructure` / `vg-main-groups`，见 `vg-groups`）。**判断某个补丁是否安全的方法：把上游原版单独跑一遍 `apply`，若某补丁被 skip，问一句「上游真的有这个东西吗」——有就必须删掉该补丁，没有就必须收紧 marker。** 按这条规则，`chain-customize`（本 fork 的 `dialer-proxy` 语义补丁）已于 2026-11-03 删除：上游自己就有这段代码，留在清单里只会制造假阳性。`Test/suites/integration.js` 的「VG 与链式代理互不吞噬」与「极简国内外分流模式 + VG」就是为此加的组合用例。
 
-- **「解构字段漏补」是五项校验里唯一只有测试能抓的错**：同一次上游重构中，如果只更新了锚点、忘记在 `main()` 的解构里补 `functionalIpRules`，会出现极其误导的组合：`replay` **逐字节一致**（它只比字节，不跑代码）、`verify` **特性齐全**、`mihomo -t` **四份全过**，但 `node Test/run-tests.js` 直接红 87 项，报 `functionalIpRules is not defined`。原因是上游 `main()` 的 `rules` 拼接里展开了 `...functionalIpRules`，解构漏了就是未定义变量。**教训：不要因为 replay 绿了就跳过测试；改 `buildFunctionalGroups` 的返回值/解构时，字段集合必须成对核对**（与上面那条「返回值必须与解构对齐」是同一类问题的上游版本）。
+- **「解构字段漏补」是六项校验里唯一只有测试能抓的错**：同一次上游重构中，如果只更新了锚点、忘记在 `main()` 的解构里补 `functionalIpRules`，会出现极其误导的组合：`replay` **逐字节一致**（它只比字节，不跑代码）、`verify` **特性齐全**、`mihomo -t` **四份全过**，但 `node Test/run-tests.js` 直接红 87 项，报 `functionalIpRules is not defined`。原因是上游 `main()` 的 `rules` 拼接里展开了 `...functionalIpRules`，解构漏了就是未定义变量。**教训：不要因为 replay 绿了就跳过测试；改 `buildFunctionalGroups` 的返回值/解构时，字段集合必须成对核对**（与上面那条「返回值必须与解构对齐」是同一类问题的上游版本）。
 
 - **2026-11-06 同步失败复盘：上游「统一开关命名」+「换 CDN」一次打断 4 个锚点**：上游 `b0ea9e4` 把三个开关改名（`极简模式`→`极简国内外分流模式`、`生成倍率组`→`生成高低倍率组`、`屏蔽国外QUIC`→`屏蔽代理QUIC流量`），`feb68ce` 又把图标/规则集 CDN 从 `cdn.jsdmirror.com` 换成 `fastly.jsdelivr.net`，并删掉 `DOMAIN,cdn.jsdmirror.com,直连` 及其上方注释。CI 表现：`rate-default-off` / `quic-default-on` / `prefix-comment` / `prefix-domains` 四个补丁锚点全部失配 → `apply` 注入 0 处、两个脚本「1 个补丁失败，内容未写入」→ 运行 `42138067826` 失败并开 issue。**修法三条，都有普遍意义**：① 开关类补丁的 `anchor` / `marker` / `text` 跟着改名，**fork 的默认值（`生成高低倍率组: false`、`屏蔽代理QUIC流量: true`）不动**——改名的是键，不是取舍；② 前置直连从「锚上游的 CDN 行」改成「`insertAfter` 锚 `const prefixRules = [`」，注释与三条域名合并成单条补丁，并把 `custom-ruleset-rules` 的 `['', '  // 私有网络直连', ...]` 首行空行去掉（上游删 CDN 行时把那个空行一起删了，锚点跟着废）；③ **凡是「按键名引用选项」的地方都要一起搜**：`.github/workflows/upstream-sync.yaml` 里 `gen-config` 的 `极简模式` 必须改成 `极简国内外分流模式`，因为 `Tools/gen-config.js` 用 `Object.assign(ruleOptionsEnable, options)`，键名写错**不报错**，只会让 `full-minimal` 那条内核校验静默退化成默认配置；`Test/suites/*` 里 fork 遗留的 `withOptions(api, { 极简模式: ... })` 同理（改名后断言才会真的红）。**顺带记一条更一般的判断**：上游「只改名不改语义」的提交在 `compare` 里看起来无害，但只要改名落在锚点或选项键上就是硬失败/静默失效，别因为它 `+/-` 行数小就跳过。**同一批还把 `suites/integration.js` 里 9 条 fork 用例迁进了 `fork.js`**（见「改动流程」）；2026-11-13 进一步把挂载从 `run-tests.js` 挪到独立入口，Test 目录对上游只剩两个新增文件。
 

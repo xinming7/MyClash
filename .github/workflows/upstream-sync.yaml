@@ -244,6 +244,17 @@ jobs:
 
           exit $fail
 
+      # 为什么必须放在这里：同步用 GITHUB_TOKEN 推 main，而 GitHub 规定
+      # 「GITHUB_TOKEN 产生的 push 不触发新 workflow」，所以 fork-ci 的 doc-refs
+      # 在同步落地后根本不会跑。上游插删行会让 AGENTS.md 里的 `文件:行号` 静默过期
+      # （2026-11-06 就发生过：7 处失效、CI 全绿、无人发现）。--fix 的修正进同一提交，
+      # --strict 兜住「引用的代码已被上游删除」这类无法自动修的真错。
+      - name: 校验 · 文档行号引用
+        if: steps.gate.outputs.has_update == '1'
+        run: |
+          node Tools/check-doc-refs.js --fix
+          node Tools/check-doc-refs.js --strict
+
       - name: 提交并推送 main
         if: steps.gate.outputs.has_update == '1'
         run: |
@@ -281,6 +292,13 @@ jobs:
             node Tools/sync-upstream.js replay --ref "$UPSTREAM_REF"
             node Test/run-tests.js
             node Test/run-fork-tests.js
+            # 合并进来的远程提交也可能改了行号；修正后必须自己提交，否则改动只留在工作区
+            node Tools/check-doc-refs.js --fix
+            node Tools/check-doc-refs.js --strict
+            if ! git diff --quiet; then
+              git add -A
+              git commit -m "docs: 合并远程 main 后修正行号引用"
+            fi
           done
           echo "::error::连续 3 次推送均失败，请检查分支保护或仓库权限"
           exit 1
