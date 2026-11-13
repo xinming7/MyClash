@@ -195,6 +195,7 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
 
 - **共享文件（上游也有、fork 也要改）分三档处理，别一律「fork 覆盖」**：2026-11-13 做过一次系统性收口，判据是「上游改动频率 × 改动行数 × 冲突后修复成本」。① **能挪走的挪走**：`.gitignore` 里 fork 只多一行 `.workbuddy/`（本机会话记忆），已挪进 `.git/info/exclude`，该文件现在与上游逐字节相同——换机器要手动重加一次。② **能派生的派生**：`Config/*.yaml` 上游每 10 个提交有 8 个会动，fork 在里面各有两处固定改动（头部链接、QUIC 屏蔽启用），已用 `target: 'config'` 的清单特性接管，`replay` 覆盖到 4 个目标、L1 白名单也放行这两个文件；现在上游改到 QUIC 相邻行（历史上一定冲突）会被自动重建，实测「上游新增一条直连规则 + 我们的注入」可以共存。③ **确实动不了的就接受冲突**：`README.md` 有 114 行 fork 内容，且文字冲突人工 2 分钟能解，拆成 `FORK.md` 反而牺牲门面可读性，故保留。`format_and_test.yaml` 走的是另一条路：**fork 检查另立 `fork-ci.yaml`**，上游那份还原原样。
 - **`Config/*.yaml` 的 fork 改动也走清单，别手改**：`Tools/lib/feature-manifest.js` 末尾两条特性 `config-brand` / `config-quic-enable`，都带 `target: 'config'`。`patch-engine` 的 `featureAppliesTo()` 按 `flavor` 前缀分区（`full|lite` → 脚本，`config-full|config-lite` → 配置），**脚本补丁绝不会跑进 YAML**（否则脚本锚点在 YAML 里必然找不到、整个文件注入失败）。新增 fork 配置项时照这个模式加，别直接编辑 Config。
+  **边界要说清**：`config-quic-enable` 的锚点是「注释行 + 规则行」两行原文——上游只改**相邻**内容（新增规则、调顺序）时 L1 能自动重建（2026-11-13 实测：`-X theirs` + apply 后 fork 链接、QUIC 启用、上游新规则三者共存，replay 逐字节一致）；上游改**这两行本身**（例如把注释文案改写成「如需启用请删除下面的 # 号」）时 apply 会失败并直接报出锚点首行，此时更新 `anchor` 即可——仍然是 L2，但比手解三方冲突快得多。这是「跟着上游走」与「不被上游静默带偏」之间刻意选的取舍：宁可红灯，也不要留一条语义已经过期的 QUIC 规则。
 
 ## 相关
 
