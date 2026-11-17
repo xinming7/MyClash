@@ -423,8 +423,7 @@ const FEATURES = [
           '',
           '    // includeAll 组不能为空：VG 开启时若订阅全是家宽/优选节点，过滤后会是空数组，',
           '    // 而 mihomo 校验阶段要求 select/url-test/load-balance 组必须有 proxies 或 use',
-          '    const groupProxies =',
-          '      svc.includeAll && candidateProxies.length === 0 ? [...allProxiesNames] : candidateProxies;',
+          '    const groupProxies = svc.includeAll && candidateProxies.length === 0 ? [...allProxiesNames] : candidateProxies;',
         ].join('\n'),
       },
       {
