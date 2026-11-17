@@ -22,12 +22,12 @@
       "why": "分流组注入 vgCfGroupNames；跨行特征串用于消歧。上游 2026-11-12 合并两种分流组写法后，原来 :1264/:1272 两条引用合成这一条"
     },
     {
-      "ref": "Script/mihomoScript.js:1283",
+      "ref": "Script/mihomoScript.js:1284",
       "needle": "proxies: ['默认代理', ...vgCfGroupNames, '直连', ...groupNamesOfSelect]",
       "why": "漏网之鱼注入 vgCfGroupNames"
     },
     {
-      "ref": "Script/mihomoScript.js:1300",
+      "ref": "Script/mihomoScript.js:1301",
       "needle": "      ...vgCfGroupNames,\n      ...customGroupNames,\n      ...(chainGroup ? [chainGroup.name] : []),",
       "why": "GLOBAL 注入 vgCfGroupNames；跨行特征串用于消歧"
     }

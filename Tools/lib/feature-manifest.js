@@ -378,13 +378,14 @@ const FEATURES = [
         why: '「分流组添加所有节点」开启时，自动选择类组也要排除家宽/优选节点',
         // 上游把 if/else 换成嵌套三元后，本补丁的产物是 `? ruleOptionsEnable.VG` 而非赋值语句，
         // marker 必须跟着改，否则二次 apply 会因为「认不出自己注入的内容」而重注入并撞锚点
-        marker: /groupProxies = svc\.includeAll\n\s*\? ruleOptionsEnable\.VG/,
+        marker: /candidateProxies = svc\.includeAll\n\s*\? ruleOptionsEnable\.VG/,
         op: 'replace',
         // 上游 2026-11-12（4861619）把 if/else 链改写成嵌套三元，且把 `let` 收成 `const`。
-        // 这里顺手改回 `let`：下面 vg-service-inject 的空组兜底要给它重新赋值。
+        // 这里保持 `const`：空组兜底不再回写这个变量，而是由 vg-service-inject 另起一个
+        // `const groupProxies` 承接（`candidateProxies` 保留 VG 过滤后的原始结果）。
         anchor: ['    const groupProxies = svc.includeAll', '      ? [...allProxiesNames]', '      : svc.reject'],
         text: [
-          '    let groupProxies = svc.includeAll',
+          '    const candidateProxies = svc.includeAll',
           '      ? ruleOptionsEnable.VG',
           '        ? allProxiesNames.filter((name) => !autoExcludeRegex.test(name) && !vgRegex.test(name))',
           '        : [...allProxiesNames]',
@@ -422,7 +423,8 @@ const FEATURES = [
           '',
           '    // includeAll 组不能为空：VG 开启时若订阅全是家宽/优选节点，过滤后会是空数组，',
           '    // 而 mihomo 校验阶段要求 select/url-test/load-balance 组必须有 proxies 或 use',
-          '    if (svc.includeAll && groupProxies.length === 0) groupProxies = [...allProxiesNames];',
+          '    const groupProxies =',
+          '      svc.includeAll && candidateProxies.length === 0 ? [...allProxiesNames] : candidateProxies;',
         ].join('\n'),
       },
       {
