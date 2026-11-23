@@ -63,6 +63,30 @@ jobs:
       - name: verify fork features
         run: node Tools/sync-upstream.js verify
 
+      # meow 版是「mihomo 版 + meow 补丁」的生成物。手改生成物、或上游改到补丁锚点，
+      # 都会让生成物与清单脱节；重跑生成再比对是唯一可靠的判定。
+      - name: check meow build is up to date
+        run: node Tools/build-meow.js --check
+
+      # 产物只有被内核接受才算数：这一步做静态方言断言（DNS 标签、system、策略、引用完整性）
+      - name: emit meow config and assert dialect
+        run: node Tools/meow-emit.js Script/meowScript.js /tmp/meow.json '{"VG":true}' "{}"
+
+      # `meow -t` 是 offline validation，检不出 nameserver-policy 这类致命项（实测过），
+      # 所以这里真要起一次进程。版本与 sha256 固定，升级内核时先手动跑通再改这里。
+      - name: download meow kernel
+        run: |
+          VER=0.29.0
+          SHA=688778d86557b71e952812644e092c91b8e5f3ed1ac98a0dbb097bfb6023f328
+          URL=https://github.com/meow-rs/meow-rs/releases/download/v${VER}/meow-v${VER}-x86_64-unknown-linux-gnu.tar.gz
+          curl -fsSL -o /tmp/meow.tar.gz "$URL"
+          echo "${SHA}  /tmp/meow.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/meow-bin && tar xzf /tmp/meow.tar.gz -C /tmp/meow-bin --strip-components=1
+          /tmp/meow-bin/meow -v
+
+      - name: verify meow kernel accepts the config
+        run: MEOW_BIN=/tmp/meow-bin/meow node Tools/meow-verify.js /tmp/meow.json
+
       # 两个入口都要跑：上游套件 + fork 套件（fork 用例不再挂在上游的 run-tests.js 里）
       - name: run upstream tests
         run: node Test/run-tests.js

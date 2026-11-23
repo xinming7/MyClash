@@ -20,7 +20,17 @@ const { loadScript } = require('./lib/loader');
 const { Harness } = require('./lib/harness');
 const fx = require('./lib/fixtures');
 const { runForkTests } = require('./suites/fork');
+const { runMeowTests } = require('./suites/meow');
 const { SCRIPTS } = require('./lib/scripts');
+
+/**
+ * meow 版脚本清单。
+ *
+ * 有意不放进 `Test/lib/scripts.js`：那个文件是上游的施工区，往里面加一行就等于给
+ * 上游改动埋一颗合并冲突（2026-11-13 的 `Test/run-tests.js` 冲突就是这么来的）。
+ * meow 是本 fork 的产物，清单自然也应该只由 fork 的文件维护。
+ */
+const MEOW_SCRIPTS = [{ file: 'Script/meowScript.js', label: 'meow 全量版 meowScript.js' }];
 
 function main() {
   console.log('MyClash fork 特性测试');
@@ -39,6 +49,21 @@ function main() {
 
     // 第三个参数是 end-to-end 用例需要的最小上下文：fixtures、注入入口、脚本路径
     runForkTests(h, api, { fx, loadScript, scriptFile: script.file });
+
+    const s = h.summary();
+    totalPassed += s.passed;
+    totalFailed += s.failed;
+  }
+
+  for (const script of MEOW_SCRIPTS) {
+    console.log(`\n${'='.repeat(64)}`);
+    console.log(`  测试对象: ${script.label}  (${script.file})`);
+    console.log(`${'='.repeat(64)}`);
+
+    const api = loadScript(script.file);
+    const h = new Harness(script.label);
+
+    runMeowTests(h, api, { fx, loadScript, scriptFile: script.file });
 
     const s = h.summary();
     totalPassed += s.passed;
