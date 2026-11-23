@@ -64,8 +64,11 @@ https://raw.githubusercontent.com/xinming7/MyClash/stable/Script/Script.js
 | --- | --- | --- |
 | mihomo | 绝大多数 mihomo 内核客户端 | `mihomoScript.js` / `Script.js`、`mihomoConfig.yaml` / `mihomoConfigLite.yaml` |
 | Concord | FlClash 新内核 | `concordScript.js` / `concordScriptLite.js`、`concordConfig.yaml` / `concordConfigLite.yaml` |
+| Meow-RS | Meow（meow-rs 内核的客户端） | `meowScript.js`（`Config/` 暂无静态配置，需用脚本生成） |
 
 FlClash 新版已切换为 Concord 内核，Concord 不读取的参数已从 concord 版本中移除。导入步骤、可配置项以及与 mihomo 的行为差异，见 **[FlClash（Concord 内核）使用说明](/Docs/FlClashConcord.md)**。
+
+Meow 的内核（meow-rs）**不执行 JS 覆写脚本**，只能导入 YAML：请把 `meowScript.js` 交给支持脚本模式的客户端（如 SubStore、Clash Party 的覆写功能），或用 `node Tools/meow-emit.js` 把订阅洗成 YAML 后再导入 Meow。meow 版会剔除 openvpn 等不支持的节点、删除 QUIC 屏蔽规则，差异见 **[Meow-RS 使用说明](/Docs/MeowRS.md)**。
 
 ---
 

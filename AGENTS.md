@@ -30,6 +30,10 @@
 - 配置校验：`/opt/homebrew/bin/mihomo -d <tmpdir> -f <cfg.yaml> -t`（本机 mihomo 1.19.33）
   - 生成待校验产物：`node Tools/gen-config.js Script/mihomoScript.js /tmp/full.json '{"VG":true}'` 与 `node Tools/gen-config.js Script/Script.js /tmp/lite.json`
   - 产物是 JSON 但可直接喂 mihomo（JSON ⊂ YAML）；生成器遇空策略组即非 0 退出
+- meow 版（生成物，见「Meow-RS 变体」）：
+  - 重新生成：`node Tools/build-meow.js`（`--check` 只比对，CI 用；`--only <id>` 单跑一条补丁）
+  - 产物 + 方言断言：`node Tools/meow-emit.js Script/meowScript.js /tmp/meow.json '{"VG":true}'`
+  - 内核级验证：`MEOW_BIN=/path/to/meow node Tools/meow-verify.js /tmp/meow.json`（真启动 + 探活 + 断言，**不能只跑 `meow -t`**）
 - 构建：（无）
 - 发布/部署：客户端直接导入 raw URL，**一律走本仓库 `xinming7/MyClash` 的 `stable` 分支**（`main` 是开发分支，见「分发与发布」）：
   - `https://raw.githubusercontent.com/xinming7/MyClash/stable/Script/mihomoScript.js`
@@ -39,6 +43,18 @@
   - 发布 = 打 tag：`git tag -a vX.Y.Z && git push origin vX.Y.Z`，`release` workflow 自动把 `stable` 快进过去（不再需要手工 push stable）。
   - 两个脚本头部的「源仓库 / 脚本链接」由清单里的 `brand` 特性改写（`brand-header` / `brand-header-lite`），**两版都必须改**：lite 版曾长期漏改，用户打开脚本看到的仍是上游地址。
   - 上游 `AIsouler/MyClash` 的同类链接只作对照，不含本 fork 特性，**不要写进给用户的说明里**。
+
+## Meow-RS 变体（`Script/meowScript.js`）
+
+`meow-rs` 是 mihomo 的 Rust 重写内核。它有 3 处硬性方言（DNS 段的两处代理标签、`nameserver-policy` 的 `system`）会让**整份配置被拒绝**，另有若干写法被静默忽略。因此本 fork 额外维护一份 meow 版脚本。
+
+- **它是生成物，不要手改**：`Tools/build-meow.js` 读 `Script/mihomoScript.js`，按 `Tools/lib/meow-manifest.js` 的 11 条补丁（8 方言 + 3 结构）生成 `Script/meowScript.js`。上游同步后重跑一次生成即可，没有人工合并。
+- **不进 `sync-upstream` 的派生体系**：不在 `DEFAULT_FILES` 里；`patch-engine.flavorOf()` 白名单没有它（故意如此，误用会直接报"无法识别的目标文件"，避免半注入）。`MEOW_FEATURES` 全部标 `only: 'meow'`，与 `FEATURES` 互不串门。
+- **`Script/mihomoScript.js` 一行不改**：方言差异不通过运行时开关实现，避免 mihomo 用户承担回归风险。
+- 改动前先读 `Docs/MeowRS适配方案.md`（逐项原因与实测依据）与 `Docs/MeowRS.md`（给用户的差异说明）。
+- 分发：`https://raw.githubusercontent.com/xinming7/MyClash/stable/Script/meowScript.js`。**没有静态 `Config/meowConfig*.yaml`**（静态配置无法按订阅生成地区/家宽组，且 Meow 只吃 YAML 时优先走 `meow-emit.js`）。
+- 发布与主脚本同一个 tag，不需要额外流程；`stable` 快进后 raw URL 自动更新。
+- **生成物与 prettier 的相互关系**：`Script/meowScript.js` 生成后已是 prettier 干净态，所以上游 `format_and_test` 的 bot 不会改写它。万一将来 prettier 大版本换了排版导致 bot 重排，`build-meow --check` 会变红——这不是故障，重跑一次 `node Tools/build-meow.js` 接受新排版即可（**不要手改生成物去迎合**）。
 
 ## 改动流程（用户明确要求）
 
@@ -158,6 +174,14 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
 **注意**：客户端拉的是 `stable` 分支，同步 workflow 只推 `main`，所以它**不会**直接影响客户端（2026-11-03 之前是 @main，推送即发布）。校验顺序仍不可省：发布时 `stable` 会快进到 `main`，等于把这里验过的全部内容交给客户端。首次真推已验证通过（见上），`dry_run` 现在留给「想先看差异再决定推不推」的场景。改 workflow 时别动 `concurrency: upstream-sync`，并发的两次同步会在 push 时互相打断。
 
 ## 改这个项目时的坑
+
+- **meow 不执行 JS 覆写脚本**：二进制里没有 QJS/Boa/JavaScriptCore，官方客户端只支持 YAML 订阅/编辑/导入。把 `meowScript.js` 直接"导入 Meow"是无效操作，必须先经脚本模式客户端或 `meow-emit.js` 变成 YAML。
+- **`meow -t` 不可信**：它走 offline validation，`nameserver-policy` 这类致命项检不出来（实测 `-t` 通过、`meow -f` 启动即退）。校验必须用 `Tools/meow-verify.js` 真启动。
+- **悬空引用静默跳过**：规则 target 指向不存在的策略组时，meow 只打一行 WARN 就继续匹配下一条，`-t` 也过。所以生成端要保证引用自洽（`pruneUnavailableGroups`），
+  并靠 `meow-emit.js` 的第 10 条断言兜住。
+- **`.mrs` 规则集 meow 原生支持**，不要为它换成 yaml/list；`path-in-bundle` 被静默忽略，可以留着。
+- **加密 DNS 的出口标签是 `?proxy=NAME`**，`#NAME` 会被当成 SNI；但明文 IP 条目（`223.5.5.5#DIRECT`）仍按代理标签解析，所以只把加密条目改掉是必须项，明文条目属可选项。
+- **协议白名单**：SS / VMess / VLESS / Trojan / Hysteria2 / Snell / AnyTLS / HTTP / SOCKS5 / DIRECT 可用；openvpn / ssr / hysteria(1) / tuic / wireguard / ssh / masque / tailscale / zerotier / mieru / sudoku 不支持（`meowScript.js` 已提前剔除）。
 
 - **图标基址两版都指向上游，规则源基址也指上游**：`const iconBaseUrl` 始终跟随上游，现为 `fastly.jsdelivr.net/gh/AIsouler/MyClash@main/Icons/svg/`（2026-11-06 前是 `cdn.jsdmirror.com`，随上游 `feb68ce` 一起换的）——曾有过一条 `brand-icons` 补丁把它改指本仓库 `@stable`（图标自持），已按需求删除，别再加回来。仓库内 `Icons/svg`（40 个）与 `Icons/png`（40 个）与上游**逐字节相同**、脚本不再引用；**但不要删**，上游同路径有这些文件，删掉会在每次合并上游时制造 modify/delete 冲突。规则源基址由 `const ruleSetBaseUrl` 给出（两版同值 `appshubcc/bett-rules@meta/geo/`），同样是上游的。
 - **完整版 / lite 版是两份脚本**：`Script/mihomoScript.js` 与 `Script/Script.js`，各有自己的 `function main(config)`。改一处必须同步改另一处，否则两版行为分叉。
