@@ -48,7 +48,7 @@
 
 `meow-rs` 是 mihomo 的 Rust 重写内核。它有 3 处硬性方言（DNS 段的两处代理标签、`nameserver-policy` 的 `system`）会让**整份配置被拒绝**，另有若干写法被静默忽略。因此本 fork 额外维护一份 meow 版脚本。
 
-- **它是生成物，不要手改**：`Tools/build-meow.js` 读 `Script/mihomoScript.js`，按 `Tools/lib/meow-manifest.js` 的 12 条补丁（8 方言 + 4 结构）生成 `Script/meowScript.js`。上游同步后重跑一次生成即可，没有人工合并。
+- **它是生成物，不要手改**：`Tools/build-meow.js` 读 `Script/mihomoScript.js`，按 `Tools/lib/meow-manifest.js` 的 13 条补丁（8 方言 + 5 结构）生成 `Script/meowScript.js`。上游同步后重跑一次生成即可，没有人工合并。
 - **不进 `sync-upstream` 的派生体系**：不在 `DEFAULT_FILES` 里；`patch-engine.flavorOf()` 白名单没有它（故意如此，误用会直接报"无法识别的目标文件"，避免半注入）。`MEOW_FEATURES` 全部标 `only: 'meow'`，与 `FEATURES` 互不串门。
 - **`Script/mihomoScript.js` 一行不改**：方言差异不通过运行时开关实现，避免 mihomo 用户承担回归风险。
 - 改动前先读 `Docs/MeowRS适配方案.md`（逐项原因与实测依据）与 `Docs/MeowRS.md`（给用户的差异说明）。
@@ -182,6 +182,8 @@ gh workflow run upstream-sync.yaml --repo xinming7/MyClash --ref main \
 - **`.mrs` 规则集 meow 原生支持**，不要为它换成 yaml/list；`path-in-bundle` 被静默忽略，可以留着。
 - **加密 DNS 的出口标签是 `?proxy=NAME`**，`#NAME` 会被当成 SNI；但明文 IP 条目（`223.5.5.5#DIRECT`）仍按代理标签解析，所以只把加密条目改掉是必须项，明文条目属可选项。
 - **`ws-opts.max-early-data` 必须置 0**：meow 把 early data 写进 `Sec-WebSocket-Protocol`，`tokio-tungstenite` 又按 RFC 6455 校验子协议，服务器不回该头就报 `Server sent no subprotocol`（mihomo 不校验）。该字段由订阅下发，`meowScript.js` 已在生成期归零；手改产物时要记得。
+- **select 组不要带 `url`**：meow 会为每条 select 组刷 `select: 'url' is not used`，本仓库产物已在生成期摘掉（`groupBaseOption` 模板带着它）。
+- **校验用 `strict: true`**：官方 `docs/config-validation.md` 规定 `strict` 把「操作者写的缺陷」（proxies/groups/rules 条目、provider 定义）从 warn-and-skip 升为硬错误；`meow-verify.js` 已用 strict 做离线预检，并比对告警白名单，清单外类别即失败。
 - **协议白名单**：SS / VMess / VLESS / Trojan / Hysteria2 / Snell / AnyTLS / HTTP / SOCKS5 / DIRECT 可用；openvpn / ssr / hysteria(1) / tuic / wireguard / ssh / masque / tailscale / zerotier / mieru / sudoku 不支持（`meowScript.js` 已提前剔除）。
 
 - **图标基址两版都指向上游，规则源基址也指上游**：`const iconBaseUrl` 始终跟随上游，现为 `fastly.jsdelivr.net/gh/AIsouler/MyClash@main/Icons/svg/`（2026-11-06 前是 `cdn.jsdmirror.com`，随上游 `feb68ce` 一起换的）——曾有过一条 `brand-icons` 补丁把它改指本仓库 `@stable`（图标自持），已按需求删除，别再加回来。仓库内 `Icons/svg`（40 个）与 `Icons/png`（40 个）与上游**逐字节相同**、脚本不再引用；**但不要删**，上游同路径有这些文件，删掉会在每次合并上游时制造 modify/delete 冲突。规则源基址由 `const ruleSetBaseUrl` 给出（两版同值 `appshubcc/bett-rules@meta/geo/`），同样是上游的。

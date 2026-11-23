@@ -85,6 +85,50 @@ async function waitForBoot(ctl, child, logs) {
   throw new Error(`等待 ${BOOT_TIMEOUT_MS}ms 仍未就绪：\n${logs.join('').slice(-1200)}`);
 }
 
+// 离线 `-t` 阶段允许出现的告警：全部来自订阅节点自身或 offline 校验本身，
+// 与「脚本生成的配置写错了」无关。出现清单外的新类别即判失败——这条是防止
+// select 组带 url、未知键之类的问题悄悄回来（Docs/MeowRS适配方案.md 实证 #13）。
+const ALLOWED_WARNINGS = [
+  'payload unavailable, starting empty', // 仅 -t 离线校验：没有缓存
+  'flow: xtls-rprx-vision applies to TCP only', // 节点自身 flow + udp 的固有差异
+  'skip-cert-verify=true is ignored for Reality TLS',
+  'skip-cert-verify=true: TLS certificate verification is disabled',
+];
+
+const ANSI = /\x1b\[[0-9;]*m/g;
+
+/** 把日志切成「告警类别 → 条数」，proxy=/group=/sni= 这类实例名归一掉 */
+function classifyWarnings(text) {
+  const counts = new Map();
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(ANSI, '');
+    const m = /^\S+\s+WARN\s+([\w:]+):\s*(.*)$/.exec(line.trim());
+    if (!m) continue;
+    const msg = m[2]
+      .replace(/proxy=\S+/g, '')
+      .replace(/(group|snis?|sni)="?[^"\s]+"?/g, '')
+      .replace(/rule-provider '[^']+'/g, 'rule-provider X')
+      .replace(/\d+/g, 'N')
+      .trim();
+    const key = `${m[1]} | ${msg.slice(0, 120)}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
+/** 用 `strict: true` 跑一次离线校验：把「我们自己写进配置」的缺陷升级为硬错误 */
+function offlineValidate(bin, cfg, tmpDir) {
+  const strictCfg = { ...cfg, strict: true };
+  const strictPath = path.join(tmpDir, 'config-strict.json');
+  fs.writeFileSync(strictPath, JSON.stringify(strictCfg, null, 2), 'utf8');
+  const r = require('child_process').spawnSync(bin, ['-f', strictPath, '-t', '-d', path.join(tmpDir, 'home-strict')], {
+    encoding: 'utf8',
+    timeout: 60000,
+  });
+  const text = `${r.stdout || ''}${r.stderr || ''}`.replace(ANSI, '');
+  return { status: r.status, text };
+}
+
 async function main(argv) {
   const opts = parseArgs(argv);
   const configPath = opts._[0];
@@ -108,6 +152,38 @@ async function main(argv) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meow-verify-'));
   const tmpConfig = path.join(tmpDir, 'config.json');
   fs.writeFileSync(tmpConfig, JSON.stringify(cfg, null, 2), 'utf8');
+
+  const preflight = [];
+  const offline = offlineValidate(bin, cfg, tmpDir);
+  if (offline.status !== 0) {
+    console.error(`::error::strict 离线校验未通过（exit ${offline.status}）：`);
+    for (const line of offline.text
+      .split('\n')
+      .filter((l) => /\bERROR\b/.test(l))
+      .slice(0, 6)) {
+      console.error(`  ${line.trim().slice(0, 180)}`);
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    return 1;
+  }
+  console.log('  strict 离线校验：通过（Class A 缺陷为 0）');
+
+  const warnCounts = classifyWarnings(offline.text);
+  const unexpected = [...warnCounts.entries()].filter(
+    ([key]) => !ALLOWED_WARNINGS.some((allowed) => key.includes(allowed)),
+  );
+  if (unexpected.length > 0) {
+    for (const [key, n] of unexpected) preflight.push(`清单外告警 ×${n}：${key}`);
+  } else {
+    const total = [...warnCounts.values()].reduce((a, b) => a + b, 0);
+    console.log(`  告警清单：通过（${warnCounts.size} 类 / ${total} 条，均在允许清单内）`);
+  }
+  if (preflight.length > 0) {
+    console.error(`::error::配置出现清单外告警 ${preflight.length} 类：`);
+    for (const p of preflight) console.error(`  - ${p}`);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    return 1;
+  }
 
   const logs = [];
   const child = spawn(bin, ['-f', tmpConfig, '-d', path.join(tmpDir, 'home')], {

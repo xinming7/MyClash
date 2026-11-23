@@ -75,7 +75,7 @@
 
 | 文件                                                    | 作用                                                                                                                   | 为什么必须新增                                                                  | 影响范围                               |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------- |
-| `Tools/lib/meow-manifest.js`                            | `MEOW_FEATURES`：12 条补丁的声明（8 方言 + 4 结构，锚点对齐 `mihomoScript.js`）                                        | 把"改哪几行"变成数据，可重复执行、可失败上报                                    | 仅新工具读取                           |
+| `Tools/lib/meow-manifest.js`                            | `MEOW_FEATURES`：13 条补丁的声明（8 方言 + 5 结构，锚点对齐 `mihomoScript.js`）                                        | 把"改哪几行"变成数据，可重复执行、可失败上报                                    | 仅新工具读取                           |
 | `Tools/build-meow.js`                                   | 读 `Script/mihomoScript.js` → 应用 `MEOW_FEATURES` → 写 `Script/meowScript.js`；`--check` 只比对不落盘                 | 生成式方案的执行体；`--check` 给 CI 用                                          | 只写 `Script/meow*.js`                 |
 | `Script/meowScript.js`                                  | **生成物**，meow 方言全量版（约 1900 行）                                                                              | 分发载体                                                                        | 新入口，不影响现有脚本                 |
 | `Tools/meow-emit.js`                                    | Node 侧跑 `meowScript.js` 的 `main()`（复用 `Test/lib/loader.js` 的 vm 沙箱，或 `quickjs-emscripten`）→ 输出 YAML/JSON | 手机端/纯内核只吃 YAML；同时给 CI 提供"可被 `meow -t` 校验的产物"               | 只写指定输出路径                       |
@@ -202,6 +202,14 @@
 - **改法**：`max-early-data` 置 0（保留 `early-data-header-name` 便于回退），`max_early_data == 0` 时 meow 不再写该头
 - **影响**：中。代价是每个 ws 连接多 1 个 RTT；收益是带该字段的节点从「必挂」变「可用」。真实订阅 249 节点里有 132 个带 `max-early-data: 2048`（由订阅下发，非本脚本生成），实测可用数 `0/255 → 13/255`，`dial error` 归零
 
+### M13 `meow-select-group-no-url` — select 组摘掉 `url`
+
+- **位置**：生成物 `main()` 返回前（紧跟 `pruneUnavailableGroups(newConfig)`）
+- **原因**：实证 #13。本仓库的 `selectBaseOption` 由 `groupBaseOption` 展开，带着 `url`/`timeout`/`max-failed-times`；meow 对 select 组不读 `url`，每轮重建都刷一条 `select: 'url' is not used by select groups and will be ignored`。整份产物 `-t` 共 245 条告警，其中 **99 条**是这一条
+- **改法**：产物生成后遍历策略组，`type === 'select'` 时 `delete group.url`；`url-test`/`fallback` 的 `url` 保持不动
+- **影响**：低。剔除后告警 245 → 146，剩下 4 类全部来自订阅节点自身（vision+UDP、`skip-cert-verify`）或 `-t` 的离线特性（provider 无缓存）
+- **附带**：`Tools/meow-verify.js` 现在会先用 `strict: true` 跑一次离线校验（把配置自身的 Class A 缺陷升级为硬错误），再把 `-t` 的告警按类别比对白名单，出现清单外类别直接判失败——这两条都来自官方 `docs/config-validation.md`
+
 ### 附带说明（不用改，但要知道）
 
 | 项                                                                                                                                | 结论                                                                                            |
@@ -308,7 +316,7 @@ node Tools/meow-verify.js /tmp/meow.yaml   # 第二道：真启动 + 探活 + �
 
 落地状态（已完成）：
 
-- `Tools/lib/meow-manifest.js`（12 条特性）+ `Tools/build-meow.js`（生成 / `--check` / `--only` / `--dry-run`）
+- `Tools/lib/meow-manifest.js`（13 条特性）+ `Tools/build-meow.js`（生成 / `--check` / `--only` / `--dry-run`）
 - `Script/meowScript.js` 生成物（prettier 通过；`build-meow --check` 与工作区逐字节一致）
 - `Tools/meow-emit.js`（10 条产断言）、`Tools/meow-verify.js`（真启动探活）
 - `Test/suites/meow.js` 12 条用例，挂在 `Test/run-fork-tests.js`（未碰 `Test/lib/scripts.js`）

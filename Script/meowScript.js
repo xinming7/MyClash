@@ -2108,5 +2108,10 @@ function main(config) {
   ];
 
   pruneUnavailableGroups(newConfig);
+
+  // meow 的 select 组不读 url：摘掉，避免每轮重建刷告警
+  for (const group of newConfig['proxy-groups'] ?? []) {
+    if (group.type === 'select') delete group.url;
+  }
   return newConfig;
 }

@@ -190,6 +190,19 @@ function runMeowTests(h, api, ctx = {}) {
     h.assert(!('max-early-data' in ws['ws-opts']), '不应凭空添加 max-early-data');
   });
 
+  h.test('select 组不带 url（meow 每轮重建都会为它刷告警）', () => {
+    const sels = (base['proxy-groups'] || []).filter((g) => g.type === 'select');
+    h.assert(sels.length > 0, '产物里应有 select 组');
+    const bad = sels.filter((g) => 'url' in g).map((g) => g.name);
+    h.assert(bad.length === 0, `仍有 select 组带 url：${bad.slice(0, 5).join(', ')}`);
+  });
+
+  h.test('非 select 组的 url 不被误删', () => {
+    const others = (base['proxy-groups'] || []).filter((g) => g.type !== 'select');
+    const missing = others.filter((g) => !('url' in g)).map((g) => g.name);
+    h.assert(missing.length === 0, `这些组丢了 url：${missing.slice(0, 5).join(', ')}`);
+  });
+
   h.test('追加不支持的节点不会改变产物节点数（说明它们在脚本侧被剔除而非下发给内核）', () => {
     h.assertEqual(
       (withUnsupported.proxies || []).length,

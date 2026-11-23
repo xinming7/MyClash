@@ -376,6 +376,30 @@ const MEOW_FEATURES = [
       },
     ],
   },
+  {
+    id: 'meow-select-group-no-url',
+    title: 'select 组去掉 url（meow 不读，每轮重建刷 33 条告警）',
+    only: 'meow',
+    patches: [
+      {
+        id: 'meow-select-url-strip',
+        why:
+          'meow 的策略组解析对 select 组不看 `url`，每次重建都会刷 ' +
+          "`select: 'url' is not used by select groups and will be ignored`（实证 #13：整份产物 99 条告警里它占绝大多数）；" +
+          '该字段来自脚本共用模板 groupBaseOption，只在 meow 产物里摘掉，mihomo 版保持原样',
+        marker: /group\.type === 'select'\) delete group\.url;/,
+        op: 'insertAfter',
+        anchor: 'pruneUnavailableGroups(newConfig);',
+        text: [
+          '',
+          '  // meow 的 select 组不读 url：摘掉，避免每轮重建刷告警',
+          "  for (const group of newConfig['proxy-groups'] ?? []) {",
+          "    if (group.type === 'select') delete group.url;",
+          '  }',
+        ].join('\n'),
+      },
+    ],
+  },
 ];
 
 module.exports = { MEOW_FEATURES, UNSUPPORTED_PROXY_TYPES };
