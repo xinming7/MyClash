@@ -976,6 +976,14 @@ function filterAndNormalizeProxies(config) {
 
   const filteredProxies = normalizedProxies.map((proxy) => fixDialerProxy(proxy, renameMap, normalizedProxyNames));
 
+  // meow 的 ws 握手会把 early data 当子协议校验：关掉，否则服务器不回该头即失败
+  for (const proxy of filteredProxies) {
+    const wsOpts = proxy['ws-opts'];
+    if (wsOpts && Object.prototype.hasOwnProperty.call(wsOpts, 'max-early-data')) {
+      wsOpts['max-early-data'] = 0;
+    }
+  }
+
   // meow 的 hysteria2 不支持 ECH：去掉该字段，避免整条节点被内核丢弃
   for (const proxy of filteredProxies) {
     if (String(proxy.type ?? '').toLowerCase() === 'hysteria2') delete proxy['ech-opts'];

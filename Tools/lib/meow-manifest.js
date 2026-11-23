@@ -298,6 +298,35 @@ const MEOW_FEATURES = [
     ],
   },
   {
+    id: 'meow-ws-no-early-data',
+    title: 'ws 节点关闭 max-early-data（否则整条连接握手失败）',
+    only: 'meow',
+    patches: [
+      {
+        id: 'meow-ws-early-data-off',
+        why:
+          'meow 的 ws 传输把 early data 写进 `Sec-WebSocket-Protocol`（照抄 mihomo 的约定），' +
+          '随后又用 tokio-tungstenite 做 RFC 6455 握手校验：请求里带该头即被视为「请求子协议」，' +
+          '服务器不回就报 `SubProtocol error: Server sent no subprotocol`（实证 #12，6 节点 12 次全挂）。' +
+          '置 0 后不再写该头，代价是每连接多 1 个 RTT',
+        marker: /wsOpts\['max-early-data'\] = 0;/,
+        op: 'insertAfter',
+        anchor:
+          'const filteredProxies = normalizedProxies.map((proxy) => fixDialerProxy(proxy, renameMap, normalizedProxyNames));',
+        text: [
+          '',
+          '  // meow 的 ws 握手会把 early data 当子协议校验：关掉，否则服务器不回该头即失败',
+          '  for (const proxy of filteredProxies) {',
+          "    const wsOpts = proxy['ws-opts'];",
+          "    if (wsOpts && Object.prototype.hasOwnProperty.call(wsOpts, 'max-early-data')) {",
+          "      wsOpts['max-early-data'] = 0;",
+          '    }',
+          '  }',
+        ].join('\n'),
+      },
+    ],
+  },
+  {
     id: 'meow-group-reference-guard',
     title: '产物收口：空组补 REJECT、剔除悬空成员引用',
     only: 'meow',

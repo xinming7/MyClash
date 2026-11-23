@@ -75,7 +75,7 @@
 
 | 文件                                                    | 作用                                                                                                                   | 为什么必须新增                                                                  | 影响范围                               |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------- |
-| `Tools/lib/meow-manifest.js`                            | `MEOW_FEATURES`：11 条补丁的声明（8 方言 + 3 结构，锚点对齐 `mihomoScript.js`）                                        | 把"改哪几行"变成数据，可重复执行、可失败上报                                    | 仅新工具读取                           |
+| `Tools/lib/meow-manifest.js`                            | `MEOW_FEATURES`：12 条补丁的声明（8 方言 + 4 结构，锚点对齐 `mihomoScript.js`）                                        | 把"改哪几行"变成数据，可重复执行、可失败上报                                    | 仅新工具读取                           |
 | `Tools/build-meow.js`                                   | 读 `Script/mihomoScript.js` → 应用 `MEOW_FEATURES` → 写 `Script/meowScript.js`；`--check` 只比对不落盘                 | 生成式方案的执行体；`--check` 给 CI 用                                          | 只写 `Script/meow*.js`                 |
 | `Script/meowScript.js`                                  | **生成物**，meow 方言全量版（约 1900 行）                                                                              | 分发载体                                                                        | 新入口，不影响现有脚本                 |
 | `Tools/meow-emit.js`                                    | Node 侧跑 `meowScript.js` 的 `main()`（复用 `Test/lib/loader.js` 的 vm 沙箱，或 `quickjs-emscripten`）→ 输出 YAML/JSON | 手机端/纯内核只吃 YAML；同时给 CI 提供"可被 `meow -t` 校验的产物"               | 只写指定输出路径                       |
@@ -195,6 +195,13 @@
 - **改法**：在节点标准化之后对 hysteria2 节点 `delete proxy['ech-opts']`，保留节点
 - **影响**：中。删字段 vs 丢节点的取舍明确选前者；这条是**唯一依赖订阅数据**的适配点，真实订阅（320 节点）实测命中 1 个（`中国-HY2-69`）
 
+### M12 `meow-ws-no-early-data` — ws 节点把 `max-early-data` 置 0
+
+- **位置**：`filterAndNormalizeProxies` 里 `const filteredProxies = normalizedProxies.map(...)` 之后
+- **原因**：实证 #12。meow 的 ws 传输把 early data base64 后写进 `Sec-WebSocket-Protocol`（照抄 mihomo 的约定，`crates/meow-transport/src/ws.rs` 的 `build_request`），随后又把该请求交给 `tokio-tungstenite 0.29` 做 RFC 6455 握手校验；请求里带这个头即被视为「请求了子协议」，服务器不回就判 `SubProtocolError::NoSubProtocol`，日志为 `Server sent no subprotocol`。mihomo（Go）不做这个校验
+- **改法**：`max-early-data` 置 0（保留 `early-data-header-name` 便于回退），`max_early_data == 0` 时 meow 不再写该头
+- **影响**：中。代价是每个 ws 连接多 1 个 RTT；收益是带该字段的节点从「必挂」变「可用」。真实订阅 249 节点里有 132 个带 `max-early-data: 2048`（由订阅下发，非本脚本生成），实测可用数 `0/255 → 13/255`，`dial error` 归零
+
 ### 附带说明（不用改，但要知道）
 
 | 项                                                                                                                                | 结论                                                                                            |
@@ -301,7 +308,7 @@ node Tools/meow-verify.js /tmp/meow.yaml   # 第二道：真启动 + 探活 + �
 
 落地状态（已完成）：
 
-- `Tools/lib/meow-manifest.js`（11 条特性）+ `Tools/build-meow.js`（生成 / `--check` / `--only` / `--dry-run`）
+- `Tools/lib/meow-manifest.js`（12 条特性）+ `Tools/build-meow.js`（生成 / `--check` / `--only` / `--dry-run`）
 - `Script/meowScript.js` 生成物（prettier 通过；`build-meow --check` 与工作区逐字节一致）
 - `Tools/meow-emit.js`（10 条产断言）、`Tools/meow-verify.js`（真启动探活）
 - `Test/suites/meow.js` 12 条用例，挂在 `Test/run-fork-tests.js`（未碰 `Test/lib/scripts.js`）

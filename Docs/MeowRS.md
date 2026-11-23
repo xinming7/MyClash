@@ -66,6 +66,7 @@ meow 版不是新写的脚本，而是从 `mihomoScript.js` **按补丁清单生
 
 - **不支持的节点会被丢弃**：`openvpn`、`ssr`、`hysteria`(v1)、`tuic`、`wireguard`、`ssh`、`masque`、`tailscale`、`zerotier`、`mieru`、`sudoku`。本仓库已在脚本侧提前剔除，所以「节点比 mihomo 版少」是预期行为。支持的协议为 SS / VMess / VLESS / Trojan / Hysteria2 / Snell / AnyTLS / HTTP / SOCKS5 / DIRECT。
 - **手机端协议面还需确认**：`meow-android` 的说明里只列了 Shadowsocks / Trojan / AnyTLS / Direct。若你的订阅以 VLESS 或 Hysteria2 为主，建议先在真机上验证再决定是否切换。
+- **`ws` 节点的 early data 被关掉**：meow 会把 early data 写进 `Sec-WebSocket-Protocol` 又按子协议规则校验，服务器不回就整条连接失败，所以 meow 版把所有 ws 节点的 `max-early-data` 置 0。代价是每个连接多一个往返，换连接可用。
 - **`hysteria2` + `ech-opts` 的节点会被丢弃**：meow 对这类节点不支持 ECH，其它协议的 ECH 仍可用。
 - **规则指向不存在的策略组时，meow 只告警不报错**：该条规则会被跳过，流量落到后面的规则。本仓库已在生成时保证引用自洽（空组补 `REJECT`），自行改配置时请注意。
 - **`meow -t` 不能当作「能用」的判据**：它只做离线校验，`nameserver-policy` 这类致命项检不出来。改完配置请真的启动一次。

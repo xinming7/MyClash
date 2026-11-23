@@ -145,6 +145,51 @@ function runMeowTests(h, api, ctx = {}) {
     h.assert(!('ech-opts' in hy), 'ech-opts 仍存在');
   });
 
+  // ws + max-early-data：meow 会把它当子协议校验，服务器不回就整条连接失败
+  const withWsEarly = build({
+    proxies: [
+      ...fx.typicalSubscription().proxies,
+      {
+        name: '🇯🇵 日本-WS-01',
+        type: 'vless',
+        server: 'w.example.com',
+        port: 443,
+        uuid: 'b831381d-6324-4d53-ad4f-8cda48b30811',
+        tls: true,
+        network: 'ws',
+        'ws-opts': {
+          path: '/',
+          headers: { Host: 'w.example.com' },
+          'early-data-header-name': 'Sec-WebSocket-Protocol',
+          'max-early-data': 2048,
+        },
+      },
+      {
+        name: '🇯🇵 日本-WS-02',
+        type: 'vless',
+        server: 'w2.example.com',
+        port: 443,
+        uuid: 'b831381d-6324-4d53-ad4f-8cda48b30811',
+        tls: true,
+        network: 'ws',
+        'ws-opts': { path: '/', headers: { Host: 'w2.example.com' } },
+      },
+    ],
+  });
+
+  h.test('ws 节点的 max-early-data 被置 0，header 名保留', () => {
+    const ws = (withWsEarly.proxies || []).find((p) => p.name === '🇯🇵 日本-WS-01');
+    h.assert(ws, '节点不应被丢弃');
+    h.assertEqual(ws['ws-opts']['max-early-data'], 0, 'max-early-data 未归零');
+    h.assertEqual(ws['ws-opts']['early-data-header-name'], 'Sec-WebSocket-Protocol', 'header 名应保留，便于回退');
+  });
+
+  h.test('未声明 max-early-data 的 ws 节点不会被塞进该字段', () => {
+    const ws = (withWsEarly.proxies || []).find((p) => p.name === '🇯🇵 日本-WS-02');
+    h.assert(ws, '节点不应被丢弃');
+    h.assert(!('max-early-data' in ws['ws-opts']), '不应凭空添加 max-early-data');
+  });
+
   h.test('追加不支持的节点不会改变产物节点数（说明它们在脚本侧被剔除而非下发给内核）', () => {
     h.assertEqual(
       (withUnsupported.proxies || []).length,
